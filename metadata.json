@@ -1,0 +1,6 @@
+{
+  "name": "FCFUNZ",
+  "description": "Uma réplica moderna e altamente polida da plataforma FCFUNZ de 2015 com rede social, chat em tempo real, salas, cargos, economia virtual, presentes, marketplace e painel administrativo.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
