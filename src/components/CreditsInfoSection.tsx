@@ -188,7 +188,7 @@ export default function CreditsInfoSection() {
                   @{responsibleUser?.username || 'Kelvin'}
                 </p>
                 <p className="text-[10px] text-slate-400">
-                  {responsibleUser?.nome} {responsibleUser?.sobrenome} • Cargo: <span className="font-bold text-indigo-400">{responsibleUser?.cargo || 'Founder'}</span>
+                  Cargo: <span className="font-bold text-indigo-400">{responsibleUser?.cargo || 'Founder'}</span>
                 </p>
               </div>
             </div>

@@ -71,8 +71,9 @@ export default function Navbar({ activeTab, setActiveTab, openPMWithUser, onView
       case 'Mentor':
       case 'Mentor Head':
         return 'bg-red-500/20 text-red-400 border border-red-500/30'; // Red for Mentor
-      case 'Merchant':
       case 'Super Merchant':
+        return 'bg-pink-500/20 text-pink-400 border border-pink-500/30'; // Pink for Super Merchant
+      case 'Merchant':
         return 'bg-purple-500/20 text-purple-400 border border-purple-500/30'; // Purple for Merchant
       case 'Guide':
         return 'bg-teal-500/20 text-teal-400 border border-teal-500/30';
@@ -87,7 +88,8 @@ export default function Navbar({ activeTab, setActiveTab, openPMWithUser, onView
 
   const cargoTextClass = (cargo: string) => {
     if (cargo === 'Mentor' || cargo === 'Mentor Head') return 'text-red-400 font-bold';
-    if (cargo === 'Merchant' || cargo === 'Super Merchant') return 'text-purple-400 font-bold';
+    if (cargo === 'Super Merchant') return 'text-pink-400 font-bold';
+    if (cargo === 'Merchant') return 'text-purple-400 font-bold';
     if (cargo === 'Founder') return 'text-amber-400 font-bold';
     if (cargo === 'Global Admin') return 'text-rose-400 font-bold';
     return 'text-slate-200';
@@ -100,10 +102,10 @@ export default function Navbar({ activeTab, setActiveTab, openPMWithUser, onView
     <header className="sticky top-0 z-50 w-full border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         
-        {/* Logo FCFUNZ */}
+        {/* Logo AMIGOS */}
         <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('chat')}>
           <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/20">
-            <span className="font-sans text-xl font-black text-white tracking-widest">FC</span>
+            <span className="font-sans text-lg font-black text-white tracking-wider">AM</span>
             <span className="absolute -top-1 -right-1 flex h-3 w-3">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
@@ -111,9 +113,9 @@ export default function Navbar({ activeTab, setActiveTab, openPMWithUser, onView
           </div>
           <div className="hidden sm:block">
             <h1 className="font-sans text-lg font-bold text-white tracking-wider flex items-center gap-1">
-              FCFUNZ <span className="text-xs bg-indigo-500/10 text-indigo-400 px-1.5 py-0.5 rounded border border-indigo-500/20">2015 Retro</span>
+              AMIGOS <span className="text-[9px] bg-indigo-500/10 text-indigo-400 px-1.5 py-0.5 rounded border border-indigo-500/20 uppercase font-mono tracking-tight font-extrabold">Fcfunztbook Premium</span>
             </h1>
-            <p className="text-[10px] text-slate-500 font-mono tracking-tight">VIRTUAL SOCIAL SPACE</p>
+            <p className="text-[9px] text-slate-500 font-mono tracking-tight uppercase">Rede Social Virtual</p>
           </div>
         </div>
 
@@ -147,8 +149,11 @@ export default function Navbar({ activeTab, setActiveTab, openPMWithUser, onView
                     <div className="flex items-center gap-2">
                       <img src={u.avatar_url || ''} alt={u.username} className="w-6 h-6 rounded-full border border-slate-700" />
                       <div>
-                        <p className={`text-xs ${cargoTextClass(u.cargo)}`}>{u.username}</p>
-                        <p className="text-[10px] text-slate-400">{u.nome} {u.sobrenome}</p>
+                        <p className={`text-xs ${cargoTextClass(u.cargo)} flex items-center gap-1`}>
+                          {u.username}
+                          <UserBadgesInline cargo={u.cargo} className="ml-1" />
+                        </p>
+                        <p className="text-[10px] text-slate-400 font-mono">{u.cargo}</p>
                       </div>
                     </div>
                     <span className={`text-[9px] px-1.5 py-0.5 rounded ${getCargoStyle(u.cargo)}`}>

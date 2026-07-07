@@ -11,6 +11,7 @@ import {
   Trophy, Medal, Search, Users, Shield, Zap, Sparkles, Coins, Gift, Compass,
   MessageSquare, Flame, Ticket, Clock, Play, Square, AlertCircle, Award, CheckCircle
 } from 'lucide-react';
+import { UserBadgesInline } from './BadgesSection';
 
 type LeaderboardName = 'gift' | 'hot' | 'apollo' | 'op' | 'chatroom' | 'rank';
 
@@ -159,7 +160,8 @@ export default function LeaderboardSection() {
     if (cargo === 'Founder') return 'text-amber-400 font-bold';
     if (cargo === 'Global Admin') return 'text-rose-400 font-bold animate-pulse';
     if (cargo === 'Mentor' || cargo === 'Mentor Head') return 'text-red-500 font-bold';
-    if (cargo === 'Merchant' || cargo === 'Super Merchant') return 'text-purple-500 font-bold';
+    if (cargo === 'Super Merchant') return 'text-pink-400 font-bold';
+    if (cargo === 'Merchant') return 'text-purple-500 font-bold';
     return 'text-slate-200';
   };
 
@@ -404,8 +406,7 @@ export default function LeaderboardSection() {
                   <div className="min-w-0">
                     <p className={`text-xs font-bold truncate flex items-center gap-1 ${getCargoColorClasses(u.cargo)}`}>
                       @{u.username}
-                      {u.cargo === 'Founder' && <Shield className="h-3 w-3 text-amber-400 inline" />}
-                      {u.cargo === 'Global Admin' && <Shield className="h-3 w-3 text-rose-400 inline" />}
+                      <UserBadgesInline cargo={u.cargo} className="ml-1" />
                     </p>
                     <p className="text-[10px] text-slate-400 truncate mt-0.5">
                       {u.cargo} • {(u as any).subLabel || `Nível ${u.nivel || 1}`}
@@ -703,10 +704,11 @@ export default function LeaderboardSection() {
                   className="w-12 h-12 rounded-full border-2 border-indigo-500 object-cover" 
                 />
                 <div>
-                  <h4 className={`text-sm font-bold ${getCargoColorClasses(selectedUserDetail.cargo)}`}>
+                  <h4 className={`text-sm font-bold flex items-center gap-1 ${getCargoColorClasses(selectedUserDetail.cargo)}`}>
                     @{selectedUserDetail.username}
+                    <UserBadgesInline cargo={selectedUserDetail.cargo} className="ml-1" />
                   </h4>
-                  <p className="text-xs text-slate-400 mt-0.5">{selectedUserDetail.nome} {selectedUserDetail.sobrenome}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{selectedUserDetail.cargo}</p>
                 </div>
               </div>
               <span className="text-[10px] font-mono bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded border border-indigo-500/20 uppercase font-bold">

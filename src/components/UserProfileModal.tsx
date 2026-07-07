@@ -196,8 +196,13 @@ export default function UserProfileModal({ userId, onClose, onOpenPM }: UserProf
           text: 'text-red-500',
           badge: 'bg-red-500/25 border-red-500/40 text-red-300'
         };
-      case 'Merchant':
       case 'Super Merchant':
+        return {
+          banner: 'from-pink-600 via-pink-500 to-rose-500',
+          text: 'text-pink-400 font-bold',
+          badge: 'bg-pink-500/25 border-pink-500/40 text-pink-300'
+        };
+      case 'Merchant':
         return {
           banner: 'from-purple-600 via-purple-500 to-indigo-500',
           text: 'text-purple-500',
@@ -276,14 +281,15 @@ export default function UserProfileModal({ userId, onClose, onOpenPM }: UserProf
         {/* User Bio Header */}
         <div className="pt-12 px-6 pb-4 border-b border-slate-800/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="text-left">
-            <h3 className="text-lg font-bold text-slate-100 flex items-center gap-1.5 flex-wrap">
-              {user.nome ? `${user.nome} ${user.sobrenome || ''}` : ''}
-              <span className={`text-base font-bold flex items-center gap-1.5 ${getCargoNicknameStyle(user.cargo).text}`}>
-                {user.username}
-                <UserBadgesInline cargo={user.cargo} className="ml-1" />
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-xl font-extrabold flex items-center gap-2 tracking-tight ${getCargoNicknameStyle(user.cargo).text}`}>
+                @{user.username}
               </span>
-            </h3>
-            <p className="text-xs text-slate-400 mt-1 flex items-center gap-2">
+              <div className="flex items-center bg-slate-950/40 border border-slate-800/80 rounded-full px-2.5 py-1 ml-1 select-none">
+                <UserBadgesInline cargo={user.cargo} className="scale-110" />
+              </div>
+            </div>
+            <p className="text-xs text-slate-400 mt-2 flex items-center gap-2">
               <Globe className="h-3.5 w-3.5 text-slate-500" /> {getCountryName(user.pais)}
               <span className="text-slate-600">•</span>
               <span>Gênero: {user.sexo === 'M' ? 'Masculino' : user.sexo === 'F' ? 'Feminino' : 'Outro'}</span>

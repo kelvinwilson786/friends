@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   User, Shield, Coins, Key, RefreshCw, Send, ArrowRightLeft, 
   Ticket, Check, Award, ArrowUpRight, ArrowDownLeft, 
-  Lock, HelpCircle, ArrowLeft, ChevronRight, BookOpen, Clock
+  Lock, HelpCircle, ArrowLeft, ChevronRight, BookOpen, Clock, ShieldAlert
 } from 'lucide-react';
 
 interface AccountSectionProps {
@@ -30,7 +30,16 @@ export default function AccountSection({ onViewProfile }: AccountSectionProps) {
   const [bonusMessage, setBonusMessage] = useState('');
 
   // Active Menu / Sub-page Option
-  const [activeOption, setActiveOption] = useState<'menu' | 'transfer' | 'voucher' | 'password' | 'security' | 'history'>('menu');
+  const [activeOption, setActiveOption] = useState<'menu' | 'transfer' | 'voucher' | 'password' | 'security' | 'history' | 'verify'>('menu');
+
+  // Verification states
+  const [verifyPhone, setVerifyPhone] = useState('');
+  const [verifySmsCode, setVerifySmsCode] = useState('');
+  const [smsSent, setSmsSent] = useState(false);
+  const [isSendingSms, setIsSendingSms] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState('');
+  const [verifySuccess, setVerifySuccess] = useState('');
 
   // Financial forms state
   const [transferTargetId, setTransferTargetId] = useState('');
@@ -119,8 +128,8 @@ export default function AccountSection({ onViewProfile }: AccountSectionProps) {
       case 'Global Admin': return 'text-rose-400';
       case 'Mentor':
       case 'Mentor Head': return 'text-red-500';
-      case 'Merchant':
-      case 'Super Merchant': return 'text-purple-500';
+      case 'Merchant': return 'text-purple-500';
+      case 'Super Merchant': return 'text-pink-400';
       case 'Guide': return 'text-teal-400';
       case 'Verified User': return 'text-emerald-400';
       default: return 'text-slate-300';
@@ -209,6 +218,70 @@ export default function AccountSection({ onViewProfile }: AccountSectionProps) {
     } catch (err: any) {
       setSecurityError(err.message || 'Erro ao atualizar dados de segurança.');
     }
+  };
+
+  // 5. Handle verification SMS
+  const handleSendVerifySms = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!verifyPhone.trim()) {
+      setVerifyError('Por favor, insira o seu número de telemóvel.');
+      return;
+    }
+    setVerifyError('');
+    setIsSendingSms(true);
+    
+    setTimeout(() => {
+      setIsSendingSms(false);
+      setSmsSent(true);
+    }, 1200);
+  };
+
+  // 6. Handle verification confirm
+  const handleVerifyConfirm = (e: React.FormEvent) => {
+    e.preventDefault();
+    setVerifyError('');
+    if (verifySmsCode.trim() !== '4821') {
+      setVerifyError('Código incorreto! O código de simulação do sistema é 4821.');
+      return;
+    }
+
+    setIsVerifying(true);
+
+    setTimeout(async () => {
+      try {
+        const active = db.getActiveProfile();
+        active.cargo = 'Verified User';
+        localStorage.setItem(`fcfunz_profile_${active.id}`, JSON.stringify(active));
+        const pIdx = db.profiles.findIndex(p => p.id === active.id);
+        if (pIdx !== -1) {
+          db.profiles[pIdx] = { ...db.profiles[pIdx], ...active };
+        }
+        localStorage.setItem('fcfunz_profiles', JSON.stringify(db.profiles));
+
+        await api.addNotification({
+          usuario_id: active.id,
+          title: '🎉 Conta Verificada com Sucesso!',
+          message: 'Parabéns! Sua conta agora está 100% verificada de forma fácil. Você recebeu o selo oficial de verificação no chat!',
+          type: 'system'
+        });
+
+        setVerifySuccess('Conta verificada com sucesso! Você agora é um Verified User oficial. 🌟');
+        setIsVerifying(false);
+        loadAccountDetails();
+
+        setTimeout(() => {
+          setActiveOption('menu');
+          // reset fields
+          setVerifyPhone('');
+          setVerifySmsCode('');
+          setSmsSent(false);
+          setVerifySuccess('');
+        }, 2000);
+      } catch (err: any) {
+        setVerifyError('Erro ao verificar conta.');
+        setIsVerifying(false);
+      }
+    }, 1000);
   };
 
   return (
@@ -356,6 +429,28 @@ export default function AccountSection({ onViewProfile }: AccountSectionProps) {
                 exit={{ opacity: 0, y: -15 }}
                 className="space-y-6"
               >
+                {currentUser.cargo === 'Unverified User' && (
+                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-lg shadow-amber-500/5">
+                    <div className="flex gap-3 items-start sm:items-center">
+                      <div className="h-10 w-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+                        <ShieldAlert className="h-5.5 w-5.5" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-amber-300">Sua conta ainda não está verificada!</h4>
+                        <p className="text-[10px] text-slate-400 mt-0.5 leading-normal">
+                          Contas não verificadas têm limites de transferência e não exibem o badge de confiança no chat. Torne-se um usuário verificado gratuitamente agora.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setActiveOption('verify')}
+                      className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-[10px] font-bold rounded-lg uppercase tracking-wider shrink-0 transition"
+                    >
+                      Verificar Agora
+                    </button>
+                  </div>
+                )}
+
                 <div className="bg-slate-900 border border-slate-850 rounded-2xl p-6 shadow-xl">
                   <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wider font-mono border-b border-slate-800 pb-3 mb-5 flex items-center gap-2">
                     <Shield className="h-4.5 w-4.5 text-indigo-400" /> Configurações & Finanças
@@ -363,6 +458,35 @@ export default function AccountSection({ onViewProfile }: AccountSectionProps) {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     
+                    {/* Option: Verify Account */}
+                    <button
+                      onClick={() => setActiveOption('verify')}
+                      className={`flex items-center justify-between p-4 rounded-xl border transition-all text-left group md:col-span-2 ${
+                        currentUser.cargo === 'Unverified User'
+                          ? 'border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10 hover:border-amber-500/80'
+                          : 'border-slate-800/80 bg-slate-950/20 hover:bg-slate-800/30 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        <div className={`h-10 w-10 rounded-lg border flex items-center justify-center group-hover:scale-105 transition ${
+                          currentUser.cargo === 'Unverified User'
+                            ? 'bg-amber-500/15 border-amber-500/30 text-amber-400'
+                            : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                        }`}>
+                          <ShieldAlert className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="text-xs font-bold text-slate-200">
+                            {currentUser.cargo === 'Unverified User' ? '⚠️ Verificar Minha Conta (Fácil)' : 'Selo de Verificação Ativo'}
+                          </h3>
+                          <p className="text-[10px] text-slate-500 mt-0.5 truncate">
+                            {currentUser.cargo === 'Unverified User' ? 'Torne-se um Verified User oficial por SMS em segundos' : 'Sua conta está verificada e protegida contra invasões'}
+                          </p>
+                        </div>
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-slate-600 group-hover:text-indigo-400 group-hover:translate-x-1 transition" />
+                    </button>
+
                     {/* Option: Transfer credits */}
                     <button
                       onClick={() => setActiveOption('transfer')}
@@ -819,6 +943,127 @@ export default function AccountSection({ onViewProfile }: AccountSectionProps) {
                     </tbody>
                   </table>
                 </div>
+              </motion.div>
+            )}
+
+            {activeOption === 'verify' && (
+              <motion.div
+                key="verify-view"
+                initial={{ opacity: 0, x: 15 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -15 }}
+                className="bg-slate-900 border border-slate-850 rounded-2xl p-6 shadow-xl space-y-5"
+              >
+                <button
+                  onClick={() => { setActiveOption('menu'); setVerifyError(''); setVerifySuccess(''); }}
+                  className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition font-mono"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" /> Voltar para Opções
+                </button>
+
+                <div className="border-b border-slate-800/60 pb-3">
+                  <h2 className="text-sm font-bold text-slate-200 flex items-center gap-1.5 uppercase font-mono tracking-wider">
+                    <Shield className="h-4.5 w-4.5 text-amber-400 animate-pulse" /> Verificação de Conta Fácil
+                  </h2>
+                  <p className="text-[11px] text-slate-400 mt-1">Siga o processo rápido por SMS para receber o seu selo de Verified User oficial.</p>
+                </div>
+
+                {currentUser.cargo !== 'Unverified User' ? (
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 p-4 rounded-xl text-center space-y-2">
+                    <p className="text-xs font-bold font-mono">🌟 Sua conta já está verificada!</p>
+                    <p className="text-[10px] text-slate-400">Cargo atual: <strong className="text-slate-200">{currentUser.cargo}</strong>. Não é necessário realizar nenhuma ação adicional.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {!smsSent ? (
+                      <form onSubmit={handleSendVerifySms} className="space-y-4">
+                        <div className="bg-amber-500/10 border border-amber-500/25 text-amber-300 rounded-xl p-3 text-[11px] leading-relaxed font-mono">
+                          📱 Insira seu número de telemóvel de Moçambique para que o sistema envie um código de validação simulado.
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-wider mb-1">Número de Telemóvel (ex: +258 84/85/87)</label>
+                          <input
+                            type="tel"
+                            required
+                            placeholder="+258 84 123 4567"
+                            value={verifyPhone}
+                            onChange={(e) => setVerifyPhone(e.target.value)}
+                            className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3.5 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none"
+                          />
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={isSendingSms}
+                          className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold py-2.5 rounded-lg transition text-xs shadow-md shadow-indigo-600/10 flex items-center justify-center gap-1.5"
+                        >
+                          {isSendingSms ? (
+                            <>
+                              <RefreshCw className="h-4 w-4 animate-spin" /> Enviando SMS...
+                            </>
+                          ) : (
+                            <>
+                              <Send className="h-4 w-4" /> Enviar Código de Confirmação
+                            </>
+                          )}
+                        </button>
+                      </form>
+                    ) : (
+                      <form onSubmit={handleVerifyConfirm} className="space-y-4">
+                        <div className="bg-indigo-500/10 border border-indigo-500/25 text-indigo-300 rounded-xl p-3 text-[11px] leading-relaxed font-mono">
+                          💬 Código SMS enviado com sucesso para <strong className="text-white">{verifyPhone}</strong>!<br />
+                          Digite o código de verificação abaixo. Seu código de teste gerado pelo sistema é <strong className="text-amber-400 font-bold">4821</strong>.
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-wider mb-1">Código de Confirmação (4 dígitos)</label>
+                          <input
+                            type="text"
+                            required
+                            maxLength={4}
+                            placeholder="Digite 4821"
+                            value={verifySmsCode}
+                            onChange={(e) => setVerifySmsCode(e.target.value)}
+                            className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3.5 py-2 text-center text-sm font-mono tracking-widest text-slate-200 focus:border-indigo-500 focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => { setSmsSent(false); setVerifySmsCode(''); }}
+                            className="flex-1 bg-slate-800 hover:bg-slate-750 text-slate-300 font-bold py-2 rounded-lg transition text-xs"
+                          >
+                            Voltar
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={isVerifying}
+                            className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold py-2 rounded-lg transition text-xs flex items-center justify-center gap-1"
+                          >
+                            {isVerifying ? (
+                              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              'Confirmar Código'
+                            )}
+                          </button>
+                        </div>
+                      </form>
+                    )}
+                  </div>
+                )}
+
+                {verifySuccess && (
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-mono rounded-lg p-3 text-center animate-pulse">
+                    {verifySuccess}
+                  </div>
+                )}
+                {verifyError && (
+                  <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-mono rounded-lg p-3 text-center">
+                    {verifyError}
+                  </div>
+                )}
               </motion.div>
             )}
 

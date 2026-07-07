@@ -22,6 +22,210 @@ export type UserCargo =
   | 'Chatroom Moderator'
   | 'Chatroom Manager';
 
+export interface BadgeConfigItem {
+  icon: string;
+  name: string;
+  textClass: string;
+  bgClass: string;
+  borderClass: string;
+  description: string;
+}
+
+const DEFAULT_BADGE_CONFIG: Record<UserCargo, BadgeConfigItem> = {
+  'Founder': {
+    icon: '👑',
+    name: 'Founder',
+    textClass: 'text-amber-500',
+    bgClass: 'bg-amber-600/10',
+    borderClass: 'border-amber-600/30',
+    description: 'Fundador e criador original do ecossistema.'
+  },
+  'Global Admin': {
+    icon: '⚡',
+    name: 'Global Admin',
+    textClass: 'text-orange-400',
+    bgClass: 'bg-orange-500/10',
+    borderClass: 'border-orange-500/30',
+    description: 'Administrador global com plenos poderes.'
+  },
+  'Guide': {
+    icon: '🧭',
+    name: 'Guide',
+    textClass: 'text-teal-400',
+    bgClass: 'bg-teal-500/10',
+    borderClass: 'border-teal-500/30',
+    description: 'Guia encarregado de orientar novatos.'
+  },
+  'Staff': {
+    icon: '🛠️',
+    name: 'Staff',
+    textClass: 'text-slate-400',
+    bgClass: 'bg-slate-500/10',
+    borderClass: 'border-slate-500/20',
+    description: 'Membro oficial do suporte técnico.'
+  },
+  'Mentor': {
+    icon: '🎯',
+    name: 'Mentor',
+    textClass: 'text-red-500',
+    bgClass: 'bg-red-500/10',
+    borderClass: 'border-red-500/30',
+    description: 'Mentor oficial responsável por guiar comerciantes.'
+  },
+  'Mentor Head': {
+    icon: '🔥',
+    name: 'Mentor Head',
+    textClass: 'text-rose-500',
+    bgClass: 'bg-rose-500/10',
+    borderClass: 'border-rose-500/30',
+    description: 'Chefe dos mentores e autoridade máxima.'
+  },
+  'Hero': {
+    icon: '🛡️',
+    name: 'Hero',
+    textClass: 'text-cyan-400',
+    bgClass: 'bg-cyan-500/10',
+    borderClass: 'border-cyan-500/30',
+    description: 'Herói honorário que contribui significativamente.'
+  },
+  'Merchant': {
+    icon: '🔮',
+    name: 'Merchant',
+    textClass: 'text-purple-400',
+    bgClass: 'bg-purple-500/10',
+    borderClass: 'border-purple-500/30',
+    description: 'Comerciante oficial autorizado a realizar transações.'
+  },
+  'Super Merchant': {
+    icon: '🌸',
+    name: 'Super Merchant',
+    textClass: 'text-pink-400',
+    bgClass: 'bg-pink-500/10',
+    borderClass: 'border-pink-500/30',
+    description: 'Super Comerciante com limites ampliados e alto volume.'
+  },
+  'Merchant Staff': {
+    icon: '💼',
+    name: 'Merchant Staff',
+    textClass: 'text-slate-400',
+    bgClass: 'bg-slate-500/10',
+    borderClass: 'border-slate-500/20',
+    description: 'Staff oficial do Comerciante.'
+  },
+  'Merchant Guide': {
+    icon: '🧭',
+    name: 'Merchant Guide',
+    textClass: 'text-teal-400',
+    bgClass: 'bg-teal-500/10',
+    borderClass: 'border-teal-500/30',
+    description: 'Guia do Comerciante.'
+  },
+  'Merchant Hero': {
+    icon: '🛡️',
+    name: 'Merchant Hero',
+    textClass: 'text-cyan-400',
+    bgClass: 'bg-cyan-500/10',
+    borderClass: 'border-cyan-500/30',
+    description: 'Herói do Comerciante.'
+  },
+  'Verified User': {
+    icon: '✅',
+    name: 'Verified User',
+    textClass: 'text-emerald-400',
+    bgClass: 'bg-emerald-500/10',
+    borderClass: 'border-emerald-500/30',
+    description: 'Usuário verificado oficialmente com autenticidade.'
+  },
+  'Unverified User': {
+    icon: '👤',
+    name: 'Unverified User',
+    textClass: 'text-slate-300',
+    bgClass: 'bg-slate-800/20',
+    borderClass: 'border-slate-850',
+    description: 'Membro comum registrado aproveitando a comunidade.'
+  },
+  'Lucky User': {
+    icon: '🍀',
+    name: 'Lucky User',
+    textClass: 'text-yellow-400',
+    bgClass: 'bg-yellow-500/10',
+    borderClass: 'border-yellow-500/30',
+    description: 'Usuário com sorte extraordinária em minijogos.'
+  },
+  'Chatroom Moderator': {
+    icon: '⚔️',
+    name: 'Chatroom Moderator',
+    textClass: 'text-blue-400',
+    bgClass: 'bg-blue-500/10',
+    borderClass: 'border-blue-500/30',
+    description: 'Moderador encarregado de manter a ordem na sala.'
+  },
+  'Chatroom Manager': {
+    icon: '🔑',
+    name: 'Chatroom Manager',
+    textClass: 'text-indigo-400',
+    bgClass: 'bg-indigo-500/10',
+    borderClass: 'border-indigo-500/30',
+    description: 'Gerente oficial de sala de chat.'
+  }
+};
+
+// Initialize BADGE_CONFIG with merged values from localStorage
+const getInitialBadgeConfig = (): Record<UserCargo, BadgeConfigItem> => {
+  const config = { ...DEFAULT_BADGE_CONFIG };
+  if (typeof window !== 'undefined') {
+    const saved = localStorage.getItem('fcfunz_custom_badge_config');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        Object.keys(parsed).forEach((k) => {
+          if (config[k as UserCargo]) {
+            config[k as UserCargo] = { ...config[k as UserCargo], ...parsed[k] };
+          }
+        });
+      } catch (e) {
+        console.error('Failed parsing custom badge config:', e);
+      }
+    }
+  }
+  return config;
+};
+
+export const BADGE_CONFIG = getInitialBadgeConfig();
+
+export const saveCustomBadgeConfig = (config: Partial<Record<UserCargo, Partial<BadgeConfigItem>>>) => {
+  Object.keys(config).forEach((k) => {
+    const key = k as UserCargo;
+    if (BADGE_CONFIG[key] && config[key]) {
+      BADGE_CONFIG[key] = { ...BADGE_CONFIG[key], ...config[key] };
+    }
+  });
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('fcfunz_custom_badge_config', JSON.stringify(BADGE_CONFIG));
+    // Trigger global update callback if any
+    window.dispatchEvent(new Event('badge_config_updated'));
+  }
+};
+
+export const resetBadgeConfigToDefault = (cargo: UserCargo) => {
+  if (DEFAULT_BADGE_CONFIG[cargo]) {
+    BADGE_CONFIG[cargo] = { ...DEFAULT_BADGE_CONFIG[cargo] };
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('fcfunz_custom_badge_config');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          delete parsed[cargo];
+          localStorage.setItem('fcfunz_custom_badge_config', JSON.stringify(parsed));
+        } catch (e) {
+          console.error('Failed resetting custom badge config:', e);
+        }
+      }
+      window.dispatchEvent(new Event('badge_config_updated'));
+    }
+  }
+};
+
 export interface Profile {
   id: string; // uuid
   username: string;
@@ -41,6 +245,7 @@ export interface Profile {
   black_diamonds?: number;
   last_level_up_at?: string;
   password?: string;
+  email?: string;
   security_question?: string;
   security_answer?: string;
   merchant_pin?: string;
@@ -103,6 +308,7 @@ export interface Mensagem {
   autor_username?: string;
   autor_cargo?: UserCargo;
   autor_avatar?: string | null;
+  targetBotId?: string;
 }
 
 export interface Amizade {
@@ -314,5 +520,18 @@ export interface LeaderboardCompetition {
     score: number;
   }[];
   start_snapshots?: Record<string, number>; // user_id -> metric value snapshot at start
+}
+
+export interface Anuncio {
+  id: string;
+  autor_id: string;
+  autor_username: string;
+  texto: string;
+  visualizacoes: number;
+  dias: number;
+  valor_pago: number;
+  criado_em: string;
+  expira_em: string;
+  status: 'pending' | 'active' | 'expired' | 'rejected';
 }
 

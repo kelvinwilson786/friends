@@ -6,14 +6,16 @@
 import React, { useState, useEffect } from 'react';
 import { api, db, subscribeToGlobalUpdates } from '../lib/supabase';
 import { Tweet, TweetComment, UserCargo } from '../types';
-import { UserBadgesInline } from './BadgesSection';
+import { UserBadgesInline, getCargoNicknameStyle } from './BadgesSection';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Heart, ThumbsUp, ThumbsDown, MessageSquare, Send, Image, 
-  Sparkles, Globe, Shield, Clock, HelpCircle, AlertCircle
+  Sparkles, Globe, Shield, Clock, HelpCircle, AlertCircle, Users, Check, X,
+  UserPlus, UserMinus, Search, Share2
 } from 'lucide-react';
+import { Profile } from '../types';
 
-export default function SocialSection() {
+export default function SocialSection({ onViewProfile }: { onViewProfile: (userId: string) => void }) {
   const [tweets, setTweets] = useState<Tweet[]>([]);
   const [newContent, setNewContent] = useState('');
   const [newImage, setNewImage] = useState('');
@@ -22,11 +24,88 @@ export default function SocialSection() {
   const [comments, setComments] = useState<TweetComment[]>([]);
   const [newComment, setNewComment] = useState('');
 
+  // Pagination & Mobile Navigation Focus
+  const [feedLimit, setFeedLimit] = useState(10);
+  const [mobileActiveTab, setMobileActiveTab] = useState<'feed' | 'amigos'>('feed');
+
+  // Friendship and suggestions state
+  const [friends, setFriends] = useState<Profile[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<{ received: Profile[], sent: Profile[] }>({ received: [], sent: [] });
+  const [suggestions, setSuggestions] = useState<Profile[]>([]);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [searchUsername, setSearchUsername] = useState('');
+
   const currentUser = db.getActiveProfile();
+
+  const handleSendRequest = async (username: string) => {
+    setActionLoading(username);
+    try {
+      await api.sendFriendRequest(username);
+      setSearchUsername('');
+      await loadFriendshipData();
+    } catch (err: any) {
+      alert(err.message || "Erro ao enviar solicitação");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRespondRequest = async (requesterId: string, accept: boolean) => {
+    setActionLoading(requesterId);
+    try {
+      await api.respondToFriendRequest(requesterId, accept);
+      await loadFriendshipData();
+    } catch (err: any) {
+      alert(err.message || "Erro ao responder solicitação");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRemoveFriend = async (friendId: string) => {
+    if (!confirm("Deseja realmente desfazer a amizade?")) return;
+    setActionLoading(friendId);
+    try {
+      await api.removeFriend(friendId);
+      await loadFriendshipData();
+    } catch (err: any) {
+      alert(err.message || "Erro ao remover amigo");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const loadFriendshipData = async () => {
+    try {
+      const allFriends = await api.getFriends();
+      const requests = await api.getFriendshipRequests();
+      const allUsers = await api.getAllUsers();
+      
+      setFriends(allFriends);
+      setPendingRequests(requests);
+      
+      const friendIds = allFriends.map(f => f.id);
+      const pendingIds = [
+        ...requests.received.map(r => r.id),
+        ...requests.sent.map(s => s.id)
+      ];
+      
+      const filteredSug = allUsers.filter(u => 
+        u.id !== currentUser.id && 
+        !friendIds.includes(u.id) && 
+        !pendingIds.includes(u.id)
+      );
+      
+      setSuggestions(filteredSug.slice(0, 4));
+    } catch (err) {
+      console.error("Error loading friendship data:", err);
+    }
+  };
 
   const loadFeed = async () => {
     const feed = await api.getTweets();
     setTweets(feed);
+    await loadFriendshipData();
   };
 
   useEffect(() => {
@@ -85,25 +164,8 @@ export default function SocialSection() {
     }
   };
 
-  const getCargoColorClasses = (cargo: UserCargo) => {
-    switch (cargo) {
-      case 'Founder':
-        return 'text-amber-400 font-black';
-      case 'Global Admin':
-        return 'text-rose-400 font-bold';
-      case 'Mentor':
-      case 'Mentor Head':
-        return 'text-red-500 font-bold';
-      case 'Merchant':
-      case 'Super Merchant':
-        return 'text-purple-500 font-bold';
-      case 'Guide':
-        return 'text-teal-400 font-medium';
-      case 'Verified User':
-        return 'text-emerald-400 font-semibold';
-      default:
-        return 'text-slate-200';
-    }
+  const getCargoColorClasses = (cargo: string) => {
+    return getCargoNicknameStyle(cargo).text;
   };
 
   const getCargoLabelStyle = (cargo: UserCargo) => {
@@ -125,11 +187,63 @@ export default function SocialSection() {
     }
   };
 
+  const friendIds = friends.map(f => f.id);
+  const filteredTweets = tweets.filter(t => {
+    // Current user can always see their own posts
+    if (t.user_id === currentUser.id) return true;
+    
+    // Is friend
+    if (friendIds.includes(t.user_id)) return true;
+    
+    // Check role of author: guides, admins, founders, staff, moderators, mentors
+    const authorCargo = t.author_cargo || '';
+    const cargoLower = authorCargo.toLowerCase();
+    
+    const isGuide = cargoLower.includes('guide');
+    const isAdmin = cargoLower.includes('admin') || cargoLower.includes('manager');
+    const isFounder = cargoLower.includes('founder');
+    const isStaff = cargoLower.includes('staff');
+    const isMentor = cargoLower.includes('mentor');
+    const isModerator = cargoLower.includes('moderator');
+    
+    return isGuide || isAdmin || isFounder || isStaff || isMentor || isModerator;
+  });
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4 pb-12">
-      
-      {/* LEFT COLUMN: Post creator & Feed list (8 cols) */}
-      <div className="lg:col-span-8 space-y-6">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4 pb-12 space-y-4">
+      {/* Mobile focused layout tabs */}
+      <div className="flex lg:hidden bg-slate-900/60 p-1 rounded-xl border border-slate-800">
+        <button
+          onClick={() => setMobileActiveTab('feed')}
+          className={`flex-1 py-2 text-xs font-bold rounded-lg transition duration-150 flex items-center justify-center gap-2 ${
+            mobileActiveTab === 'feed'
+              ? 'bg-indigo-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Share2 className="h-4 w-4" />
+          Feed de Publicações
+        </button>
+        <button
+          onClick={() => setMobileActiveTab('amigos')}
+          className={`flex-1 py-2 text-xs font-bold rounded-lg transition duration-150 flex items-center justify-center gap-2 ${
+            mobileActiveTab === 'amigos'
+              ? 'bg-indigo-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Users className="h-4 w-4 text-emerald-400" />
+          Amigos & Solicitações
+          {pendingRequests.received.length > 0 && (
+            <span className="h-2 w-2 rounded-full bg-rose-500 animate-pulse ml-1.5" />
+          )}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        {/* LEFT COLUMN: Post creator & Feed list (8 cols) */}
+        <div className={`lg:col-span-8 space-y-6 ${mobileActiveTab === 'feed' ? 'block' : 'hidden lg:block'}`}>
         
         {/* Post Publisher */}
         <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 backdrop-blur-sm">
@@ -195,7 +309,7 @@ export default function SocialSection() {
 
         {/* FEED LIST */}
         <div className="space-y-4">
-          {tweets.map(post => (
+          {tweets.slice(0, feedLimit).map(post => (
             <motion.div
               key={post.id}
               initial={{ opacity: 0, y: 10 }}
@@ -320,12 +434,184 @@ export default function SocialSection() {
               </AnimatePresence>
             </motion.div>
           ))}
+          
+          {tweets.length > feedLimit && (
+            <div className="flex justify-center pt-4">
+              <button
+                type="button"
+                onClick={() => setFeedLimit(prev => prev + 10)}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600/10 border border-indigo-500/20 hover:border-indigo-500/40 hover:bg-indigo-600/20 text-indigo-400 hover:text-indigo-300 text-xs font-mono uppercase tracking-wider font-bold rounded-xl transition duration-150 shadow-lg shadow-indigo-950/20"
+              >
+                <Clock className="h-4 w-4 text-indigo-400 animate-pulse" />
+                Carregar Feeds Mais Antigos
+              </button>
+            </div>
+          )}
         </div>
 
       </div>
 
-      {/* RIGHT COLUMN: Statistics & Guidelines (4 cols) */}
-      <div className="lg:col-span-4 space-y-6">
+      {/* RIGHT COLUMN: Statistics, Friends & Guidelines (4 cols) */}
+      <div className={`lg:col-span-4 space-y-6 ${mobileActiveTab === 'amigos' ? 'block' : 'hidden lg:block'}`}>
+        
+        {/* Adicionar Amigo Search Bar */}
+        <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 backdrop-blur-sm">
+          <h3 className="text-xs font-bold text-slate-200 flex items-center gap-1.5 pb-2.5 border-b border-slate-800">
+            <Users className="h-4 w-4 text-indigo-400" /> Enviar Convite de Amizade
+          </h3>
+          <form 
+            onSubmit={(e) => { 
+              e.preventDefault(); 
+              if (searchUsername.trim()) handleSendRequest(searchUsername.trim()); 
+            }} 
+            className="mt-3 flex gap-2"
+          >
+            <div className="relative flex-1">
+              <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-500">
+                <Search className="h-3.5 w-3.5" />
+              </span>
+              <input
+                type="text"
+                value={searchUsername}
+                onChange={(e) => setSearchUsername(e.target.value)}
+                placeholder="Digite o @username..."
+                className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-200 placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={actionLoading !== null}
+              className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition"
+            >
+              Adicionar
+            </button>
+          </form>
+        </div>
+
+        {/* Amigos List */}
+        <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 backdrop-blur-sm">
+          <h3 className="text-xs font-bold text-slate-200 flex items-center gap-1.5 pb-2.5 border-b border-slate-800">
+            <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse mr-1" />
+            Amigos Online ({friends.length})
+          </h3>
+          <div className="mt-3 space-y-3 max-h-64 overflow-y-auto pr-1">
+            {friends.length === 0 ? (
+              <p className="text-xs text-slate-500 font-mono italic">Nenhum amigo adicionado ainda.</p>
+            ) : (
+              friends.map(friend => (
+                <div key={friend.id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-950/20 border border-slate-800/40 hover:bg-slate-950/30 transition">
+                  <div className="flex items-center gap-2.5 min-w-0 cursor-pointer" onClick={() => onViewProfile(friend.id)}>
+                    <div className="relative shrink-0">
+                      <img src={friend.avatar_url || ''} alt={friend.username} className="w-8 h-8 rounded-full border border-slate-800" />
+                      <div className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-slate-900" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-slate-200 truncate flex items-center gap-1">
+                        @{friend.username}
+                        <UserBadgesInline cargo={friend.cargo} />
+                      </p>
+                      <p className="text-[10px] text-slate-500 truncate">{friend.nome || 'Usuário'} {friend.sobrenome || ''}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleRemoveFriend(friend.id)}
+                    disabled={actionLoading !== null}
+                    title="Desfazer Amizade"
+                    className="text-slate-500 hover:text-rose-400 p-1 rounded transition hover:bg-slate-800/40 shrink-0"
+                  >
+                    <UserMinus className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Solicitações de Amizade */}
+        {(pendingRequests.received.length > 0 || pendingRequests.sent.length > 0) && (
+          <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 backdrop-blur-sm">
+            <h3 className="text-xs font-bold text-slate-200 flex items-center gap-1.5 pb-2.5 border-b border-slate-800">
+              <Clock className="h-4 w-4 text-indigo-400" /> Solicitações Pendentes
+            </h3>
+            <div className="mt-3 space-y-3 max-h-48 overflow-y-auto">
+              {/* Received */}
+              {pendingRequests.received.map(req => (
+                <div key={req.id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-950/20 border border-slate-800/40">
+                  <div className="flex items-center gap-2 min-w-0 cursor-pointer" onClick={() => onViewProfile(req.id)}>
+                    <img src={req.avatar_url || ''} alt={req.username} className="w-7 h-7 rounded-full border border-slate-800 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-slate-200 truncate">@{req.username}</p>
+                      <p className="text-[9px] text-indigo-400">Recebida</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <button
+                      onClick={() => handleRespondRequest(req.id, true)}
+                      disabled={actionLoading !== null}
+                      className="bg-indigo-600 hover:bg-indigo-500 text-white p-1 rounded transition"
+                      title="Aceitar"
+                    >
+                      <Check className="h-3 w-3" />
+                    </button>
+                    <button
+                      onClick={() => handleRespondRequest(req.id, false)}
+                      disabled={actionLoading !== null}
+                      className="bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-rose-400 p-1 rounded transition"
+                      title="Recusar"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {/* Sent */}
+              {pendingRequests.sent.map(req => (
+                <div key={req.id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-950/20 border border-slate-800/40">
+                  <div className="flex items-center gap-2 min-w-0 cursor-pointer" onClick={() => onViewProfile(req.id)}>
+                    <img src={req.avatar_url || ''} alt={req.username} className="w-7 h-7 rounded-full border border-slate-800 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-slate-200 truncate">@{req.username}</p>
+                      <p className="text-[9px] text-slate-500">Enviada</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Sugestões de Amigos */}
+        {suggestions.length > 0 && (
+          <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 backdrop-blur-sm">
+            <h3 className="text-xs font-bold text-slate-200 flex items-center gap-1.5 pb-2.5 border-b border-slate-800">
+              <Sparkles className="h-4 w-4 text-indigo-400" /> Sugestões de Amizade
+            </h3>
+            <div className="mt-3 space-y-3">
+              {suggestions.map(sug => (
+                <div key={sug.id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-950/20 border border-slate-800/40 hover:bg-slate-950/30 transition">
+                  <div className="flex items-center gap-2 min-w-0 cursor-pointer" onClick={() => onViewProfile(sug.id)}>
+                    <img src={sug.avatar_url || ''} alt={sug.username} className="w-7 h-7 rounded-full border border-slate-800 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-slate-200 truncate flex items-center gap-1">
+                        @{sug.username}
+                        <UserBadgesInline cargo={sug.cargo} />
+                      </p>
+                      <p className="text-[9px] text-slate-500 truncate">{sug.nome || 'Usuário'}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleSendRequest(sug.username)}
+                    disabled={actionLoading !== null}
+                    className="text-indigo-400 hover:text-indigo-300 p-1.5 rounded transition hover:bg-slate-800/40 shrink-0"
+                    title="Adicionar Amigo"
+                  >
+                    <UserPlus className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         
         {/* Guidelines & community metrics */}
         <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 backdrop-blur-sm">
@@ -369,6 +655,8 @@ export default function SocialSection() {
         </div>
 
       </div>
+
+    </div>
 
     </div>
   );

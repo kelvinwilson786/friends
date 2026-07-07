@@ -5,13 +5,18 @@
 
 import React, { useState, useEffect } from 'react';
 import { api, db, subscribeToGlobalUpdates } from '../lib/supabase';
-import { Profile, Sala, ApolloCode, UserCargo, VaquinhaContribution } from '../types';
+import { Profile, Sala, ApolloCode, UserCargo, VaquinhaContribution, BADGE_CONFIG, saveCustomBadgeConfig, resetBadgeConfigToDefault, Anuncio } from '../types';
+import { Megaphone } from 'lucide-react';
+import { botOrchestrator } from '../lib/bots';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Shield, Users, Settings, History, Plus, Coins, Zap, ShieldCheck, 
   Trash2, AlertTriangle, Key, List, Lock, FileText, Ban, Edit, 
-  VolumeX, Volume2, LockKeyhole, Unlock, KeyRound, ArrowUpCircle, Check, X
+  VolumeX, Volume2, LockKeyhole, Unlock, KeyRound, ArrowUpCircle, Check, X,
+  Cpu, Play, Square, MessageSquare, Gift, Sparkles, RefreshCw, Send, Radio,
+  Award, Upload
 } from 'lucide-react';
+import { UserBadgesInline } from './BadgesSection';
 
 const CARGOS: UserCargo[] = [
   'Founder', 'Global Admin', 'Guide', 'Staff', 'Mentor', 'Mentor Head',
@@ -31,7 +36,8 @@ export default function AdminSection() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [rooms, setRooms] = useState<Sala[]>([]);
   const [vouchers, setVouchers] = useState<ApolloCode[]>([]);
-  const [activeAdminTab, setActiveAdminTab] = useState<'users' | 'salas' | 'vouchers' | 'logs' | 'credits' | 'vaquinha'>('users');
+  const [activeAdminTab, setActiveAdminTab] = useState<'users' | 'salas' | 'vouchers' | 'logs' | 'credits' | 'vaquinha' | 'bots' | 'badges' | 'anuncios'>('users');
+  const [ads, setAds] = useState<Anuncio[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [vaquinhaContributions, setVaquinhaContributions] = useState<VaquinhaContribution[]>([]);
 
@@ -81,6 +87,46 @@ export default function AdminSection() {
   const [respUserId, setRespUserId] = useState<string>('');
   const [respPhone, setRespPhone] = useState<string>('');
 
+  // States for Bot Management Panel
+  const [botsList, setBotsList] = useState(() => botOrchestrator.getBots());
+  const [botMetrics, setBotMetrics] = useState(() => botOrchestrator.getBotMetrics());
+  const [botLogs, setBotLogs] = useState(() => botOrchestrator.getLogs());
+  const [isOrchestratorRunning, setIsOrchestratorRunning] = useState(() => botOrchestrator.isRunning());
+
+  // Action drawers for individual bots
+  const [activeActionBotId, setActiveActionBotId] = useState<string | null>(null);
+  const [botActionType, setBotActionType] = useState<'enter' | 'speak' | 'gift' | 'feed' | null>(null);
+
+  // Bot action form values
+  const [botEnterRoomId, setBotEnterRoomId] = useState('');
+  const [botSpeakText, setBotSpeakText] = useState('');
+  const [botGiftReceiverId, setBotGiftReceiverId] = useState('');
+  const [botGiftId, setBotGiftId] = useState('g_rose');
+  const [botFeedText, setBotFeedText] = useState('');
+
+  // Badge customizer state
+  const [activeCargoToEdit, setActiveCargoToEdit] = useState<UserCargo>('Founder');
+  const [badgeName, setBadgeName] = useState('');
+  const [badgeDesc, setBadgeDesc] = useState('');
+  const [badgeIcon, setBadgeIcon] = useState('');
+  const [badgeBgClass, setBadgeBgClass] = useState('');
+  const [badgeTextClass, setBadgeTextClass] = useState('');
+  const [badgeBorderClass, setBadgeBorderClass] = useState('');
+
+  useEffect(() => {
+    if (activeCargoToEdit) {
+      const conf = BADGE_CONFIG[activeCargoToEdit];
+      if (conf) {
+        setBadgeName(conf.name);
+        setBadgeDesc(conf.description);
+        setBadgeIcon(conf.icon);
+        setBadgeBgClass(conf.bgClass);
+        setBadgeTextClass(conf.textClass);
+        setBadgeBorderClass(conf.borderClass);
+      }
+    }
+  }, [activeCargoToEdit, activeAdminTab]);
+
   const currentUser = db.getActiveProfile();
 
   const loadAdminData = () => {
@@ -89,8 +135,20 @@ export default function AdminSection() {
     setVouchers([...db.apolloCodes]);
     setVaquinhaContributions([...db.vaquinhaContributions]);
     
+    api.getAllAnuncios().then(allAds => {
+      setAds([...allAds]);
+    }).catch(() => {
+      setAds([...db.anuncios]);
+    });
+    
     setRespUserId(db.credits_responsible_user_id || 'u1');
     setRespPhone(db.credits_responsible_phone || '870870059');
+
+    // Refresh bot statistics and listings
+    setBotsList([...botOrchestrator.getBots()]);
+    setBotMetrics(botOrchestrator.getBotMetrics());
+    setBotLogs(botOrchestrator.getLogs());
+    setIsOrchestratorRunning(botOrchestrator.isRunning());
 
     // Load logs from localStorage
     const storedLogs = localStorage.getItem('fcfunz_audit_logs');
@@ -376,6 +434,106 @@ export default function AdminSection() {
     }
   };
 
+  // --- BOT MANAGEMENT PANEL ACTIONS ---
+  const handleToggleOrchestrator = () => {
+    if (botOrchestrator.isRunning()) {
+      botOrchestrator.stop();
+      showSuccess('Motor de Bots Sociais PAUSADO com sucesso.');
+    } else {
+      botOrchestrator.start();
+      showSuccess('Motor de Bots Sociais INICIADO com sucesso.');
+    }
+    loadAdminData();
+  };
+
+  const handleToggleBotActive = (botId: string, currentActive: boolean) => {
+    botOrchestrator.toggleBotActive(botId, !currentActive);
+    showSuccess(`Estado autônomo do Robô modificado.`);
+    loadAdminData();
+  };
+
+  const handleToggleAllBots = (active: boolean) => {
+    botOrchestrator.toggleAllBots(active);
+    showSuccess(`Todos os Robôs foram ${active ? 'ativados' : 'desativados'}.`);
+    loadAdminData();
+  };
+
+  const handleForceEnterRoom = (botId: string) => {
+    if (!botEnterRoomId) {
+      showError('Selecione uma sala de chat primeiro.');
+      return;
+    }
+    botOrchestrator.forceEnterRoom(botId, botEnterRoomId);
+    showSuccess('Robô conectado à sala com sucesso!');
+    setActiveActionBotId(null);
+    setBotActionType(null);
+    setBotEnterRoomId('');
+    loadAdminData();
+  };
+
+  const handleForceLeaveRoom = (botId: string) => {
+    botOrchestrator.forceLeaveRoom(botId);
+    showSuccess('Robô desconectado da sala.');
+    loadAdminData();
+  };
+
+  const handleForceSpeak = async (botId: string) => {
+    if (!botSpeakText.trim()) {
+      showError('Digite uma mensagem primeiro.');
+      return;
+    }
+    try {
+      await botOrchestrator.forceSpeak(botId, botSpeakText.trim());
+      showSuccess('Robô falou na sala com sucesso!');
+      setBotSpeakText('');
+      setActiveActionBotId(null);
+      setBotActionType(null);
+      loadAdminData();
+    } catch (e: any) {
+      showError(e.message);
+    }
+  };
+
+  const handleForceSendGift = async (botId: string) => {
+    if (!botGiftReceiverId) {
+      showError('Selecione um usuário para receber o presente.');
+      return;
+    }
+    try {
+      await botOrchestrator.forceSendGift(botId, botGiftReceiverId, botGiftId);
+      showSuccess('Presente cortesia enviado com sucesso!');
+      setBotGiftReceiverId('');
+      setActiveActionBotId(null);
+      setBotActionType(null);
+      loadAdminData();
+    } catch (e: any) {
+      showError(e.message);
+    }
+  };
+
+  const handleForcePostFeed = async (botId: string) => {
+    if (!botFeedText.trim()) {
+      showError('Escreva um texto para a publicação.');
+      return;
+    }
+    try {
+      await botOrchestrator.forcePostFeed(botId, botFeedText.trim());
+      showSuccess('Publicação compartilhada na timeline!');
+      setBotFeedText('');
+      setActiveActionBotId(null);
+      setBotActionType(null);
+      loadAdminData();
+    } catch (e: any) {
+      showError(e.message);
+    }
+  };
+
+  const handleRunAutoBalance = () => {
+    botOrchestrator.autoBalanceRooms();
+    showSuccess('Balanceamento automático de salas executado!');
+    loadAdminData();
+  };
+
   // Check if active user has permission (Founder or Global Admin)
   const isAuthorized = currentUser.cargo === 'Founder' || currentUser.cargo === 'Global Admin';
 
@@ -493,6 +651,37 @@ export default function AdminSection() {
           >
             <ShieldCheck className="h-4 w-4 text-emerald-400" /> Aprovar Doações Vaquinha
           </button>
+          <button
+            onClick={() => setActiveAdminTab('bots')}
+            className={`w-full text-xs font-semibold px-3 py-2.5 rounded-lg text-left flex items-center gap-2 transition ${
+              activeAdminTab === 'bots' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
+            }`}
+          >
+            <Cpu className="h-4 w-4 text-pink-400 font-bold" /> Robôs Sociais (Bots)
+          </button>
+          <button
+            onClick={() => setActiveAdminTab('badges')}
+            className={`w-full text-xs font-semibold px-3 py-2.5 rounded-lg text-left flex items-center gap-2 transition ${
+              activeAdminTab === 'badges' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
+            }`}
+          >
+            <Award className="h-4 w-4 text-purple-400 font-bold" /> Gerenciar Emblemas (Novo)
+          </button>
+          <button
+            onClick={() => setActiveAdminTab('anuncios')}
+            className={`w-full text-xs font-semibold px-3 py-2.5 rounded-lg text-left flex items-center justify-between transition ${
+              activeAdminTab === 'anuncios' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Megaphone className="h-4 w-4 text-amber-400" /> Aprovar Anúncios
+            </div>
+            {ads.filter(a => a.status === 'pending').length > 0 && (
+              <span className="bg-rose-500 text-white font-mono text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
+                {ads.filter(a => a.status === 'pending').length}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
@@ -529,7 +718,10 @@ export default function AdminSection() {
                         <img src={u.avatar_url || ''} alt={u.username} className="w-10 h-10 rounded-full border border-slate-800" />
                         <div>
                           <div className="flex items-center gap-2">
-                            <p className="text-xs font-bold text-slate-200">@{u.username}</p>
+                            <p className="text-xs font-bold text-slate-200 flex items-center gap-1">
+                              @{u.username}
+                              <UserBadgesInline cargo={u.cargo} className="ml-1" />
+                            </p>
                             {isGlobalBanned && (
                               <span className="text-[8px] font-bold font-mono px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30 uppercase tracking-widest">
                                 BANIDO GLOBAL
@@ -1175,6 +1367,944 @@ export default function AdminSection() {
                               className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-extrabold font-mono rounded-lg transition shadow-md shadow-emerald-600/10 flex items-center gap-1 uppercase"
                             >
                               <Check className="h-3 w-3" /> Confirmar Pagamento
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 7: BOTS MANAGEMENT PANEL */}
+        {activeAdminTab === 'bots' && (
+          <div className="flex-1 flex flex-col min-h-0">
+            <div className="pb-4 border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-100 flex items-center gap-1.5">
+                  <Cpu className="h-4.5 w-4.5 text-pink-400" /> Painel de Controle de Robôs Autônomos (Social Bots)
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Gerencie o comportamento, force ações ou ajuste a densidade de presença dos bots nas salas de chat.
+                </p>
+              </div>
+
+              {/* Orchestrator Master Switch */}
+              <div className="flex items-center gap-3 bg-slate-950/40 border border-slate-850 px-4 py-2 rounded-xl">
+                <span className="text-xs font-bold text-slate-300 font-mono flex items-center gap-1.5">
+                  <span className={`h-2 w-2 rounded-full ${isOrchestratorRunning ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+                  MOTOR DE BOTS: {isOrchestratorRunning ? 'ATIVO' : 'PAUSADO'}
+                </span>
+                <button
+                  onClick={handleToggleOrchestrator}
+                  className={`px-3 py-1 text-[10px] font-black font-mono uppercase rounded-lg transition ${
+                    isOrchestratorRunning 
+                      ? 'bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20' 
+                      : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                  }`}
+                >
+                  {isOrchestratorRunning ? 'Pausar' : 'Iniciar'}
+                </button>
+              </div>
+            </div>
+
+            {/* Engagement Metrics Panel */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
+              <div className="bg-slate-950/30 border border-slate-850 p-3.5 rounded-xl flex flex-col justify-between">
+                <div>
+                  <span className="text-[9px] font-mono font-bold text-slate-500 uppercase">Bots Ativos</span>
+                  <p className="text-xl font-black text-white mt-1">{botMetrics.active} / {botMetrics.total}</p>
+                </div>
+                <div className="text-[10px] text-slate-400 mt-2 flex items-center gap-1">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                  {botMetrics.inRooms} em salas de chat
+                </div>
+              </div>
+
+              <div className="bg-slate-950/30 border border-slate-850 p-3.5 rounded-xl flex flex-col justify-between">
+                <div>
+                  <span className="text-[9px] font-mono font-bold text-slate-500 uppercase">Salas Vazias Reduzidas</span>
+                  <div className="flex items-baseline gap-1 mt-1">
+                    <p className="text-xl font-black text-emerald-400">{botMetrics.emptyRoomsReduced}%</p>
+                  </div>
+                </div>
+                <div className="w-full bg-slate-800 rounded-full h-1 mt-2 overflow-hidden">
+                  <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${botMetrics.emptyRoomsReduced}%` }} />
+                </div>
+              </div>
+
+              <div className="bg-slate-950/30 border border-slate-850 p-3.5 rounded-xl flex flex-col justify-between">
+                <div>
+                  <span className="text-[9px] font-mono font-bold text-slate-500 uppercase">Taxa de Resposta de Menção</span>
+                  <p className="text-xl font-black text-pink-400 mt-1">{botMetrics.responseRate}%</p>
+                </div>
+                <div className="w-full bg-slate-800 rounded-full h-1 mt-2 overflow-hidden">
+                  <div className="bg-pink-500 h-full rounded-full" style={{ width: `${botMetrics.responseRate}%` }} />
+                </div>
+              </div>
+
+              <div className="bg-slate-950/30 border border-slate-850 p-3.5 rounded-xl flex flex-col justify-between">
+                <div>
+                  <span className="text-[9px] font-mono font-bold text-slate-500 uppercase">Histórico de Atividade</span>
+                  <p className="text-xs font-semibold text-slate-200 mt-1">
+                    💬 {botMetrics.totalMsgs} Mensagens enviadas
+                  </p>
+                  <p className="text-xs font-semibold text-slate-200 mt-0.5">
+                    🎁 {botMetrics.totalGifts} Presentes cortesia
+                  </p>
+                </div>
+                <button
+                  onClick={handleRunAutoBalance}
+                  className="mt-2 w-full bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 border border-indigo-500/20 py-1 rounded text-[9px] font-mono font-bold uppercase transition flex items-center justify-center gap-1"
+                >
+                  <RefreshCw className="h-2.5 w-2.5" /> Balancear Densidade
+                </button>
+              </div>
+            </div>
+
+            {/* Split view: Bot listing & Terminal Logs */}
+            <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5 mt-5 min-h-0">
+              
+              {/* Bots list (7 cols) */}
+              <div className="lg:col-span-8 flex flex-col min-h-0 border border-slate-850/60 rounded-xl bg-slate-950/10 overflow-hidden">
+                <div className="px-4 py-2.5 bg-slate-950/30 border-b border-slate-850/60 flex items-center justify-between">
+                  <span className="text-[10px] font-mono font-bold text-slate-400 uppercase">Configuração Individual de Robôs</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleToggleAllBots(true)}
+                      className="text-[9px] font-mono font-bold bg-slate-900 border border-slate-800 hover:border-slate-700 px-2 py-0.5 rounded text-slate-300 transition"
+                    >
+                      Ligar Todos
+                    </button>
+                    <button
+                      onClick={() => handleToggleAllBots(false)}
+                      className="text-[9px] font-mono font-bold bg-slate-900 border border-slate-800 hover:border-slate-700 px-2 py-0.5 rounded text-slate-300 transition"
+                    >
+                      Desligar Todos
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-3 space-y-3 pr-1">
+                  {botsList.map((bot) => {
+                    const room = rooms.find(r => r.id === bot.currentRoomId);
+                    const isBotActionOpen = activeActionBotId === bot.id;
+
+                    return (
+                      <div key={bot.id} className="p-3.5 rounded-xl border border-slate-850/80 bg-slate-900/30 flex flex-col gap-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <img src={bot.avatar_url} alt={bot.username} className="w-10 h-10 rounded-full border border-slate-850 object-cover" />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-slate-200">@{bot.username}</span>
+                                <span className={`text-[8px] font-bold font-mono px-1.5 py-0.2 rounded border uppercase ${
+                                  bot.personality === 'extrovertido' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' :
+                                  bot.personality === 'timido' ? 'bg-sky-500/10 border-sky-500/20 text-sky-400' :
+                                  bot.personality === 'engracado' ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' :
+                                  bot.personality === 'ajudante' ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400' :
+                                  'bg-pink-500/10 border-pink-500/20 text-pink-400'
+                                }`}>
+                                  {bot.personality}
+                                </span>
+                                <span className="text-[8px] font-bold font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700 uppercase">
+                                  {bot.type}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-2">
+                                <span className={`h-1.5 w-1.5 rounded-full ${bot.active ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500'}`} />
+                                {bot.active ? 'Autônomo' : 'Manual apenas'}
+                                <span className="text-slate-600">|</span>
+                                📍 {room ? `Em: ${room.nome}` : 'Offline'}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Quick controls */}
+                          <div className="flex items-center gap-2 self-end sm:self-center">
+                            {/* Autonomous toggle */}
+                            <button
+                              onClick={() => handleToggleBotActive(bot.id, bot.active)}
+                              className={`text-[9px] font-mono font-bold px-2 py-1 rounded-lg border transition ${
+                                bot.active
+                                  ? 'bg-emerald-900/20 border-emerald-500/30 text-emerald-400 hover:bg-emerald-900/30'
+                                  : 'bg-slate-800 border-slate-750 text-slate-400 hover:text-slate-300'
+                              }`}
+                            >
+                              {bot.active ? 'Auto: ON' : 'Auto: OFF'}
+                            </button>
+
+                            {/* Open actions */}
+                            <button
+                              onClick={() => {
+                                if (isBotActionOpen) {
+                                  setActiveActionBotId(null);
+                                  setBotActionType(null);
+                                } else {
+                                  setActiveActionBotId(bot.id);
+                                  setBotActionType('enter');
+                                }
+                              }}
+                              className={`text-[9px] font-mono font-bold px-2.5 py-1 rounded-lg border transition ${
+                                isBotActionOpen 
+                                  ? 'bg-indigo-600 border-indigo-500 text-white' 
+                                  : 'bg-slate-800 border-slate-750 text-slate-200 hover:bg-slate-750'
+                              }`}
+                            >
+                              ⚡ COMANDAR
+                            </button>
+
+                            {bot.currentRoomId && (
+                              <button
+                                onClick={() => handleForceLeaveRoom(bot.id)}
+                                className="text-[9px] font-mono font-bold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 px-2 py-1 rounded-lg transition"
+                                title="Forçar saída da sala"
+                              >
+                                Desconectar
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Expandable actions panel */}
+                        {isBotActionOpen && (
+                          <div className="p-3.5 rounded-lg bg-slate-950/40 border border-slate-850 text-xs text-slate-300 space-y-3">
+                            <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-850">
+                              <button
+                                onClick={() => setBotActionType('enter')}
+                                className={`flex-1 text-center py-1 rounded font-mono text-[9px] font-bold transition uppercase ${
+                                  botActionType === 'enter' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+                                }`}
+                              >
+                                Sala 🚪
+                              </button>
+                              <button
+                                onClick={() => setBotActionType('speak')}
+                                className={`flex-1 text-center py-1 rounded font-mono text-[9px] font-bold transition uppercase ${
+                                  botActionType === 'speak' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+                                }`}
+                              >
+                                Falar 💬
+                              </button>
+                              <button
+                                onClick={() => setBotActionType('gift')}
+                                className={`flex-1 text-center py-1 rounded font-mono text-[9px] font-bold transition uppercase ${
+                                  botActionType === 'gift' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+                                }`}
+                              >
+                                Presente 🎁
+                              </button>
+                              <button
+                                onClick={() => setBotActionType('feed')}
+                                className={`flex-1 text-center py-1 rounded font-mono text-[9px] font-bold transition uppercase ${
+                                  botActionType === 'feed' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+                                }`}
+                              >
+                                Timeline 📱
+                              </button>
+                            </div>
+
+                            {/* Option 1: Join room */}
+                            {botActionType === 'enter' && (
+                              <div className="space-y-2">
+                                <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider block">Forçar entrada em Sala</span>
+                                <div className="flex gap-2">
+                                  <select
+                                    value={botEnterRoomId}
+                                    onChange={(e) => setBotEnterRoomId(e.target.value)}
+                                    className="flex-1 bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 font-mono"
+                                  >
+                                    <option value="">-- Escolher Sala --</option>
+                                    {rooms.map(r => (
+                                      <option key={r.id} value={r.id}>{r.nome} ({db.room_participants.filter(p => p.sala_id === r.id).length} ativos)</option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    onClick={() => handleForceEnterRoom(bot.id)}
+                                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-xs px-4 py-1 rounded-md font-bold transition uppercase"
+                                  >
+                                    Ir para Sala
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Option 2: Force speak */}
+                            {botActionType === 'speak' && (
+                              <div className="space-y-2">
+                                <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider block">Forçar envio de Mensagem (no Chat)</span>
+                                <div className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    value={botSpeakText}
+                                    onChange={(e) => setBotSpeakText(e.target.value)}
+                                    placeholder="Digite o que o robô falará na sala..."
+                                    className="flex-1 bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
+                                    onKeyDown={(e) => e.key === 'Enter' && handleForceSpeak(bot.id)}
+                                  />
+                                  <button
+                                    onClick={() => handleForceSpeak(bot.id)}
+                                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-xs px-4 py-1 rounded-md font-bold transition uppercase flex items-center gap-1"
+                                  >
+                                    <Send className="h-3 w-3" /> Falar
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Option 3: Force gift */}
+                            {botActionType === 'gift' && (
+                              <div className="space-y-2">
+                                <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider block">Enviar Presente Cortesia</span>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                  {/* Select Target User */}
+                                  <select
+                                    value={botGiftReceiverId}
+                                    onChange={(e) => setBotGiftReceiverId(e.target.value)}
+                                    className="bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
+                                  >
+                                    <option value="">-- Destinatário --</option>
+                                    {db.room_participants
+                                      .filter(p => p.sala_id === bot.currentRoomId && !p.user_id.startsWith('bot_'))
+                                      .map(p => {
+                                        const u = db.profiles.find(pr => pr.id === p.user_id);
+                                        return (
+                                          <option key={p.id} value={p.user_id}>@{u?.username || 'Anônimo'}</option>
+                                        );
+                                      })}
+                                  </select>
+
+                                  {/* Select Gift */}
+                                  <select
+                                    value={botGiftId}
+                                    onChange={(e) => setBotGiftId(e.target.value)}
+                                    className="bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none"
+                                  >
+                                    {api.getGifts()
+                                      .filter(g => g.valor <= 5)
+                                      .map(g => (
+                                        <option key={g.id} value={g.id}>{g.imagem} {g.nome} ({g.valor} MZN)</option>
+                                      ))}
+                                  </select>
+
+                                  <button
+                                    onClick={() => handleForceSendGift(bot.id)}
+                                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-xs py-1 rounded-md font-bold transition uppercase flex items-center justify-center gap-1"
+                                  >
+                                    <Gift className="h-3.5 w-3.5" /> Gifting
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Option 4: Force post on feed */}
+                            {botActionType === 'feed' && (
+                              <div className="space-y-2">
+                                <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider block">Forçar publicação no Feed (Status Social)</span>
+                                <div className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    value={botFeedText}
+                                    onChange={(e) => setBotFeedText(e.target.value)}
+                                    placeholder="No que o robô está pensando hoje para publicar?"
+                                    className="flex-1 bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
+                                    onKeyDown={(e) => e.key === 'Enter' && handleForcePostFeed(bot.id)}
+                                  />
+                                  <button
+                                    onClick={() => handleForcePostFeed(bot.id)}
+                                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-xs px-4 py-1 rounded-md font-bold transition uppercase"
+                                  >
+                                    Publicar Feed
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Terminal Logs (4 cols) */}
+              <div className="lg:col-span-4 flex flex-col min-h-0 border border-slate-850 bg-slate-950/40 rounded-xl overflow-hidden">
+                <div className="px-4 py-2.5 bg-slate-950/60 border-b border-slate-850 flex items-center justify-between font-semibold">
+                  <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                    <Radio className="h-3 w-3 text-pink-400 animate-pulse" /> Logs em Tempo Real
+                  </span>
+                  <button
+                    onClick={() => {
+                      localStorage.setItem('fcfunz_bots_logs', JSON.stringify([]));
+                      setBotLogs([]);
+                    }}
+                    className="text-[8px] font-mono font-bold bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800 px-2 py-0.5 rounded transition uppercase"
+                  >
+                    Limpar
+                  </button>
+                </div>
+
+                <div className="flex-1 p-3 overflow-y-auto font-mono text-[10px] space-y-2.5 bg-slate-950/80 scrollbar-thin scrollbar-thumb-slate-800 text-slate-300 pr-1 select-text">
+                  {botLogs.length === 0 ? (
+                    <div className="text-center py-16 text-slate-600 italic">
+                      [Nenhuma atividade registrada ainda]
+                    </div>
+                  ) : (
+                    botLogs.map((log) => (
+                      <div key={log.id} className="border-b border-slate-900/60 pb-1.5 last:border-0 leading-relaxed">
+                        <span className="text-slate-500">[{new Date(log.timestamp).toLocaleTimeString('pt-MZ')}]</span>{' '}
+                        <span className="text-indigo-400 font-bold">@{log.botUsername}</span>{' '}
+                        <span className="text-slate-100 font-semibold">({log.action})</span>
+                        {log.roomName && (
+                          <span className="text-pink-400"> na sala [{log.roomName}]</span>
+                        )}
+                        <p className="text-slate-400 pl-4 mt-0.5 text-[9.5px] border-l border-slate-800 bg-slate-950/30 py-0.5 rounded">
+                          {log.details}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {activeAdminTab === 'badges' && (
+          <div className="flex-1 flex flex-col min-h-0">
+            <div className="mb-4 flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                  <Award className="h-5 w-5 text-purple-400" /> Gerenciador de Emblemas de Cargos
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Configure e envie imagens customizadas para os emblemas de patentes de todos os cargos do sistema.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  if (confirm("Deseja redefinir TODOS os emblemas para as configurações padrões?")) {
+                    (Object.keys(BADGE_CONFIG) as UserCargo[]).forEach(c => {
+                      resetBadgeConfigToDefault(c);
+                    });
+                    // Refresh current fields
+                    const conf = BADGE_CONFIG[activeCargoToEdit];
+                    if (conf) {
+                      setBadgeName(conf.name);
+                      setBadgeDesc(conf.description);
+                      setBadgeIcon(conf.icon);
+                      setBadgeBgClass(conf.bgClass);
+                      setBadgeTextClass(conf.textClass);
+                      setBadgeBorderClass(conf.borderClass);
+                    }
+                    showSuccess("Todos os emblemas foram restaurados para os padrões!");
+                  }
+                }}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold border border-slate-700 hover:text-white transition"
+              >
+                Restaurar Todos Padrões
+              </button>
+            </div>
+
+            <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5 min-h-0 overflow-hidden">
+              {/* Left Column: Cargos list (5 cols) */}
+              <div className="lg:col-span-5 flex flex-col min-h-0 border border-slate-850 bg-slate-950/20 rounded-xl overflow-hidden">
+                <div className="px-4 py-3 bg-slate-950/40 border-b border-slate-850">
+                  <span className="text-xs font-semibold text-slate-300">Escolha o Cargo para Customizar</span>
+                </div>
+                <div className="flex-1 overflow-y-auto p-2 space-y-1 scrollbar-thin scrollbar-thumb-slate-800 pr-1">
+                  {(Object.keys(BADGE_CONFIG) as UserCargo[]).map((cargo) => {
+                    const active = cargo === activeCargoToEdit;
+                    const bConf = BADGE_CONFIG[cargo];
+                    const isImage = bConf.icon && (
+                      bConf.icon.startsWith('data:image/') || 
+                      bConf.icon.startsWith('http://') || 
+                      bConf.icon.startsWith('https://') || 
+                      bConf.icon.includes('/') || 
+                      bConf.icon.includes('.')
+                    );
+                    return (
+                      <button
+                        key={cargo}
+                        onClick={() => setActiveCargoToEdit(cargo)}
+                        className={`w-full text-left p-2.5 rounded-lg flex items-center justify-between transition ${
+                          active 
+                            ? 'bg-indigo-600/25 border border-indigo-500/40 text-white' 
+                            : 'hover:bg-slate-800/40 border border-transparent text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={`w-6 h-6 rounded-full flex items-center justify-center border shadow-sm shrink-0 text-xs ${bConf.bgClass} ${bConf.borderClass} ${bConf.textClass}`}>
+                            {isImage ? (
+                              <img src={bConf.icon} alt={bConf.name} className="w-full h-full object-cover rounded-full" />
+                            ) : (
+                              bConf.icon
+                            )}
+                          </span>
+                          <span className="text-xs font-medium truncate">{cargo}</span>
+                        </div>
+                        <span className="text-[10px] font-mono opacity-60 truncate max-w-[120px] text-right">
+                          {bConf.name}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Right Column: Customizer Form (7 cols) */}
+              <div className="lg:col-span-7 flex flex-col min-h-0 border border-slate-850 bg-slate-950/20 rounded-xl overflow-y-auto scrollbar-none">
+                <div className="px-4 py-3 bg-slate-950/40 border-b border-slate-850 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-300">Customização do Emblema: <span className="text-indigo-400 font-bold">{activeCargoToEdit}</span></span>
+                  <button
+                    onClick={() => {
+                      resetBadgeConfigToDefault(activeCargoToEdit);
+                      // reload values
+                      const conf = BADGE_CONFIG[activeCargoToEdit];
+                      if (conf) {
+                        setBadgeName(conf.name);
+                        setBadgeDesc(conf.description);
+                        setBadgeIcon(conf.icon);
+                        setBadgeBgClass(conf.bgClass);
+                        setBadgeTextClass(conf.textClass);
+                        setBadgeBorderClass(conf.borderClass);
+                      }
+                      showSuccess(`Restaurado padrão para o cargo ${activeCargoToEdit}`);
+                    }}
+                    className="text-[10px] font-semibold text-slate-400 hover:text-rose-400 transition"
+                  >
+                    Restaurar Padrão Deste Cargo
+                  </button>
+                </div>
+
+                <div className="p-4 space-y-4">
+                  {/* Name and Description fields */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400 mb-1.5 font-bold">
+                        Nome de Exibição
+                      </label>
+                      <input
+                        type="text"
+                        value={badgeName}
+                        onChange={(e) => setBadgeName(e.target.value)}
+                        placeholder="Ex: Fundador Supremo"
+                        className="w-full text-xs bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400 mb-1.5 font-bold">
+                        Descrição do Emblema
+                      </label>
+                      <input
+                        type="text"
+                        value={badgeDesc}
+                        onChange={(e) => setBadgeDesc(e.target.value)}
+                        placeholder="Ex: Proprietário e criador original..."
+                        className="w-full text-xs bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Badge Upload Area with Drag & Drop */}
+                  <div>
+                    <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400 mb-1.5 font-bold">
+                      Upload do Emblema Personalizado (Ícone/Imagem)
+                    </label>
+                    
+                    <div
+                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                      onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) {
+                          if (file.size > 1024 * 1024) {
+                            showError("A imagem é muito grande! Escolha uma imagem de até 1MB.");
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onload = (event) => {
+                            const base64Url = event.target?.result as string;
+                            if (base64Url) {
+                              setBadgeIcon(base64Url);
+                              showSuccess("Imagem arrastada com sucesso!");
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      className="border-2 border-dashed border-slate-800 hover:border-indigo-500/50 rounded-xl p-5 text-center bg-slate-900/60 hover:bg-slate-900/80 transition cursor-pointer relative"
+                    >
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            if (file.size > 1024 * 1024) {
+                              showError("A imagem é muito grande! Escolha uma imagem de até 1MB.");
+                              return;
+                            }
+                            const reader = new FileReader();
+                            reader.onload = (event) => {
+                              const base64Url = event.target?.result as string;
+                              if (base64Url) {
+                                setBadgeIcon(base64Url);
+                                showSuccess("Imagem selecionada com sucesso!");
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                      <Upload className="h-6 w-6 text-slate-400 mx-auto mb-2" />
+                      <p className="text-xs font-semibold text-slate-300">
+                        Clique para selecionar ou arraste o arquivo aqui
+                      </p>
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        Formatos aceitos: PNG, JPG, WEBP, SVG (Recomendado: 64x64, máx 1MB)
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Icon character alternative */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400 mb-1.5 font-bold">
+                        Ou utilize Emoji / Caractere (Alternativa)
+                      </label>
+                      <input
+                        type="text"
+                        value={badgeIcon && badgeIcon.startsWith('data:') ? '' : badgeIcon}
+                        onChange={(e) => setBadgeIcon(e.target.value)}
+                        placeholder="Ex: 👑, ⭐, 🛡️"
+                        className="w-full text-xs bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400 mb-1.5 font-bold font-mono">
+                        Tema/Cor de Borda & Fundo
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          onClick={() => {
+                            setBadgeBgClass('bg-amber-600/10');
+                            setBadgeBorderClass('border-amber-600/30');
+                            setBadgeTextClass('text-amber-500');
+                          }}
+                          className="px-2 py-1.5 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded text-[10px] font-semibold hover:bg-amber-500/20 transition truncate"
+                        >
+                          Dourado
+                        </button>
+                        <button
+                          onClick={() => {
+                            setBadgeBgClass('bg-red-600/10');
+                            setBadgeBorderClass('border-red-600/30');
+                            setBadgeTextClass('text-red-500');
+                          }}
+                          className="px-2 py-1.5 bg-red-500/10 border border-red-500/30 text-red-400 rounded text-[10px] font-semibold hover:bg-red-500/20 transition truncate"
+                        >
+                          Vermelho
+                        </button>
+                        <button
+                          onClick={() => {
+                            setBadgeBgClass('bg-blue-600/10');
+                            setBadgeBorderClass('border-blue-600/30');
+                            setBadgeTextClass('text-blue-500');
+                          }}
+                          className="px-2 py-1.5 bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded text-[10px] font-semibold hover:bg-blue-500/20 transition truncate"
+                        >
+                          Azul
+                        </button>
+                        <button
+                          onClick={() => {
+                            setBadgeBgClass('bg-purple-600/10');
+                            setBadgeBorderClass('border-purple-600/30');
+                            setBadgeTextClass('text-purple-500');
+                          }}
+                          className="px-2 py-1.5 bg-purple-500/10 border border-purple-500/30 text-purple-400 rounded text-[10px] font-semibold hover:bg-purple-500/20 transition truncate"
+                        >
+                          Roxo
+                        </button>
+                        <button
+                          onClick={() => {
+                            setBadgeBgClass('bg-emerald-600/10');
+                            setBadgeBorderClass('border-emerald-600/30');
+                            setBadgeTextClass('text-emerald-500');
+                          }}
+                          className="px-2 py-1.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded text-[10px] font-semibold hover:bg-emerald-500/20 transition truncate"
+                        >
+                          Verde
+                        </button>
+                        <button
+                          onClick={() => {
+                            setBadgeBgClass('bg-slate-600/10');
+                            setBadgeBorderClass('border-slate-600/30');
+                            setBadgeTextClass('text-slate-400');
+                          }}
+                          className="px-2 py-1.5 bg-slate-500/10 border border-slate-500/30 text-slate-400 rounded text-[10px] font-semibold hover:bg-slate-500/20 transition truncate"
+                        >
+                          Cinza
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* CSS classes tuning */}
+                  <div className="bg-slate-900/50 border border-slate-850 rounded-xl p-3 space-y-3">
+                    <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">Visual & CSS Customizado</span>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div>
+                        <label className="text-[9px] text-slate-500 font-mono block mb-1">Fundo (Filtro/Opacidade)</label>
+                        <input
+                          type="text"
+                          value={badgeBgClass}
+                          onChange={(e) => setBadgeBgClass(e.target.value)}
+                          className="w-full text-[11px] bg-slate-950 border border-slate-800 rounded p-1.5 text-slate-300 font-mono focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-slate-500 font-mono block mb-1">Borda (Estilo/Cor)</label>
+                        <input
+                          type="text"
+                          value={badgeBorderClass}
+                          onChange={(e) => setBadgeBorderClass(e.target.value)}
+                          className="w-full text-[11px] bg-slate-950 border border-slate-800 rounded p-1.5 text-slate-300 font-mono focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-slate-500 font-mono block mb-1">Texto (Alternativo)</label>
+                        <input
+                          type="text"
+                          value={badgeTextClass}
+                          onChange={(e) => setBadgeTextClass(e.target.value)}
+                          className="w-full text-[11px] bg-slate-950 border border-slate-800 rounded p-1.5 text-slate-300 font-mono focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* PREVIEW CONTAINER */}
+                  <div className="bg-indigo-950/20 border border-indigo-500/20 rounded-xl p-3.5 space-y-2">
+                    <span className="text-[10px] font-mono font-bold text-indigo-400 uppercase tracking-wider block">Prévia em Tempo Real</span>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-4 bg-slate-900/60 p-3 rounded-lg border border-slate-800">
+                      <div className="space-y-1">
+                        <span className="text-[9px] font-mono text-slate-500 block">Emblema Isolado:</span>
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            title={`${badgeName} - ${badgeDesc}`}
+                            className={`w-6 h-6 rounded-full flex items-center justify-center text-xs select-none shadow-sm border overflow-hidden ${badgeBgClass} ${badgeBorderClass} ${badgeTextClass}`}
+                          >
+                            {badgeIcon && (badgeIcon.startsWith('data:image/') || badgeIcon.startsWith('http')) ? (
+                              <img src={badgeIcon} alt={badgeName} className="w-full h-full object-cover rounded-full" />
+                            ) : (
+                              badgeIcon || '?'
+                            )}
+                          </span>
+                          <span className="text-xs text-slate-300 font-bold font-mono">"{badgeName}"</span>
+                        </div>
+                      </div>
+
+                      <div className="hidden sm:block h-8 w-[1px] bg-slate-800" />
+
+                      <div className="space-y-1 flex-1">
+                        <span className="text-[9px] font-mono text-slate-500 block">Exibição no Chat:</span>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className="text-[10px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-1.5 py-0.5 rounded font-mono font-bold">Lvl 10</span>
+                          <span className="text-xs font-bold text-amber-400 underline decoration-indigo-500/40">Kelvin_Wilson</span>
+                          <span className="inline-flex items-center gap-1 shrink-0 align-middle ml-1.5">
+                            <span
+                              title={`${badgeName} - ${badgeDesc}`}
+                              className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] overflow-hidden select-none cursor-help shadow-sm border ${badgeBgClass} ${badgeBorderClass} ${badgeTextClass} hover:scale-125 hover:rotate-6 transition-all duration-200`}
+                            >
+                              {badgeIcon && (badgeIcon.startsWith('data:image/') || badgeIcon.startsWith('http')) ? (
+                                <img src={badgeIcon} alt={badgeName} className="w-full h-full object-cover rounded-full" />
+                              ) : (
+                                badgeIcon || '?'
+                              )}
+                            </span>
+                          </span>
+                          <span className="text-xs text-slate-400 ml-2">: Olá pessoal, confiram o novo emblema! 🚀</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SAVE BUTTON */}
+                  <button
+                    onClick={() => {
+                      if (!badgeName.trim()) {
+                        showError("Por favor, preencha o nome do emblema.");
+                        return;
+                      }
+                      saveCustomBadgeConfig({
+                        [activeCargoToEdit]: {
+                          name: badgeName,
+                          description: badgeDesc,
+                          icon: badgeIcon,
+                          bgClass: badgeBgClass,
+                          borderClass: badgeBorderClass,
+                          textClass: badgeTextClass
+                        }
+                      });
+                      
+                      // Add audit log
+                      const newAudit: AuditLog = {
+                        id: 'audit_' + Math.random().toString(36).substr(2, 9),
+                        action: `Alterou emblema de ${activeCargoToEdit}`,
+                        executor: currentUser.username,
+                        target: `Emblema: ${badgeName}`,
+                        timestamp: new Date().toISOString()
+                      };
+                      setAuditLogs(prev => [newAudit, ...prev]);
+                      const savedLogs = JSON.parse(localStorage.getItem('fcfunz_admin_audit_logs') || '[]');
+                      localStorage.setItem('fcfunz_admin_audit_logs', JSON.stringify([newAudit, ...savedLogs]));
+
+                      showSuccess(`Emblema de ${activeCargoToEdit} atualizado com sucesso!`);
+                    }}
+                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold border border-indigo-500 hover:shadow-lg hover:shadow-indigo-500/15 transition flex items-center justify-center gap-2"
+                  >
+                    <Check className="h-4 w-4" /> Salvar Customização do Emblema
+                  </button>
+
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeAdminTab === 'anuncios' && (
+          <div className="flex-1 flex flex-col min-h-0">
+            <div className="pb-4 border-b border-slate-800">
+              <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                <Megaphone className="h-4 w-4 text-amber-400" /> Aprovação de Anúncios Públicos
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Revise e aprove anúncios submetidos pelos usuários antes de serem publicados e exibidos aleatoriamente no rodapé.
+              </p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto mt-4 space-y-4 pr-1">
+              {ads.length === 0 ? (
+                <div className="flex flex-col items-center justify-center p-8 text-center bg-slate-950/20 border border-slate-850 rounded-xl">
+                  <Megaphone className="h-8 w-8 text-slate-700 mb-2" />
+                  <p className="text-xs font-semibold text-slate-400">Nenhum anúncio cadastrado</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {ads.map((ad) => (
+                    <div 
+                      key={ad.id} 
+                      className={`p-4 rounded-xl border transition-all duration-300 ${
+                        ad.status === 'pending' 
+                          ? 'bg-amber-500/5 border-amber-500/20 hover:border-amber-500/40' 
+                          : ad.status === 'active' 
+                          ? 'bg-emerald-500/5 border-emerald-500/15' 
+                          : ad.status === 'rejected'
+                          ? 'bg-rose-500/5 border-rose-500/15'
+                          : 'bg-slate-950/20 border-slate-850'
+                      }`}
+                    >
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                        <div className="space-y-2 flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-bold text-indigo-400">@{ad.autor_username}</span>
+                            <span className="text-[9px] text-slate-500 font-mono">{new Date(ad.criado_em).toLocaleString('pt-MZ')}</span>
+                            <span className="text-[10px] bg-slate-800 text-slate-300 font-mono px-2 py-0.5 rounded">
+                              {ad.dias} dias • {ad.valor_pago} MZN
+                            </span>
+                            
+                            {ad.status === 'pending' && (
+                              <span className="text-[9px] bg-amber-500/10 border border-amber-500/20 text-amber-400 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
+                                Pendente Staff
+                              </span>
+                            )}
+                            {ad.status === 'active' && (
+                              <span className="text-[9px] bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                Ativo no Rodapé
+                              </span>
+                            )}
+                            {ad.status === 'rejected' && (
+                              <span className="text-[9px] bg-rose-500/10 border border-rose-500/20 text-rose-400 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                Rejeitado
+                              </span>
+                            )}
+                            {ad.status === 'expired' && (
+                              <span className="text-[9px] bg-slate-500/10 border border-slate-500/20 text-slate-400 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                Expirado
+                              </span>
+                            )}
+                          </div>
+                          
+                          <p className="text-xs text-slate-200 font-medium bg-slate-950/40 p-3 rounded-lg border border-slate-850/50 break-words font-sans">
+                            {ad.texto}
+                          </p>
+                        </div>
+
+                        {ad.status === 'pending' && (
+                          <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await api.updateAnuncioStatus(ad.id, 'active');
+                                  showSuccess(`Anúncio de @${ad.autor_username} aprovado com sucesso!`);
+                                  
+                                  // Log audit log
+                                  const log: AuditLog = {
+                                    id: 'audit_' + Math.random().toString(36).substr(2, 9),
+                                    action: `Aprovou anúncio de ${ad.autor_username}`,
+                                    executor: currentUser.username,
+                                    target: `Texto: ${ad.texto.substring(0, 30)}...`,
+                                    timestamp: new Date().toISOString()
+                                  };
+                                  setAuditLogs(prev => [log, ...prev]);
+                                  const savedLogs = JSON.parse(localStorage.getItem('fcfunz_admin_audit_logs') || '[]');
+                                  localStorage.setItem('fcfunz_admin_audit_logs', JSON.stringify([log, ...savedLogs]));
+                                  
+                                  loadAdminData();
+                                } catch (err: any) {
+                                  showError(err.message || "Erro ao aprovar anúncio.");
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-emerald-950/20 cursor-pointer animate-none"
+                            >
+                              <Check className="h-3.5 w-3.5" /> Aprovar
+                            </button>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await api.updateAnuncioStatus(ad.id, 'rejected');
+                                  showSuccess(`Anúncio de @${ad.autor_username} rejeitado.`);
+                                  
+                                  // Log audit log
+                                  const log: AuditLog = {
+                                    id: 'audit_' + Math.random().toString(36).substr(2, 9),
+                                    action: `Rejeitou anúncio de ${ad.autor_username}`,
+                                    executor: currentUser.username,
+                                    target: `Texto: ${ad.texto.substring(0, 30)}...`,
+                                    timestamp: new Date().toISOString()
+                                  };
+                                  setAuditLogs(prev => [log, ...prev]);
+                                  const savedLogs = JSON.parse(localStorage.getItem('fcfunz_admin_audit_logs') || '[]');
+                                  localStorage.setItem('fcfunz_admin_audit_logs', JSON.stringify([log, ...savedLogs]));
+                                  
+                                  loadAdminData();
+                                } catch (err: any) {
+                                  showError(err.message || "Erro ao rejeitar anúncio.");
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-rose-950/20 cursor-pointer animate-none"
+                            >
+                              <X className="h-3.5 w-3.5" /> Rejeitar
                             </button>
                           </div>
                         )}

@@ -186,6 +186,9 @@ export default function MerchantPanel() {
   const [pinSuccess, setPinSuccess] = useState('');
   const [pinError, setPinError] = useState('');
 
+  // Active Menu Tab state
+  const [activeTab, setActiveTab] = useState<'missions' | 'finance' | 'partners' | 'security'>('missions');
+
   // Check role authorization
   const isAuthorizedRole = ['Merchant', 'Super Merchant', 'Mentor', 'Mentor Head', 'Founder'].includes(currentUser.cargo);
   const isChefRole = ['Mentor', 'Mentor Head', 'Founder', 'Global Admin'].includes(currentUser.cargo);
@@ -599,14 +602,57 @@ export default function MerchantPanel() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
-        {/* LEFT COLUMN: Challenges & Active tasks */}
-        <div className="lg:col-span-8 space-y-6">
+      {/* HORIZONTAL NAVIGATION TABS MENU */}
+      <div className="flex border-b border-slate-800/80 gap-1 overflow-x-auto pb-1.5 scrollbar-none">
+        <button
+          onClick={() => setActiveTab('missions')}
+          className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold font-mono transition whitespace-nowrap border ${
+            activeTab === 'missions'
+              ? 'bg-purple-600/10 border-purple-500/40 text-purple-400 shadow-md shadow-purple-500/5'
+              : 'bg-transparent border-transparent text-slate-400 hover:text-slate-300 hover:bg-slate-800/30'
+          }`}
+        >
+          🎯 Missões & Desafios
+        </button>
+        <button
+          onClick={() => setActiveTab('finance')}
+          className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold font-mono transition whitespace-nowrap border ${
+            activeTab === 'finance'
+              ? 'bg-emerald-600/10 border-emerald-500/40 text-emerald-400 shadow-md shadow-emerald-500/5'
+              : 'bg-transparent border-transparent text-slate-400 hover:text-slate-300 hover:bg-slate-800/30'
+          }`}
+        >
+          💰 Financeiro & Trocas
+        </button>
+        <button
+          onClick={() => setActiveTab('partners')}
+          className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold font-mono transition whitespace-nowrap border ${
+            activeTab === 'partners'
+              ? 'bg-indigo-600/10 border-indigo-500/40 text-indigo-400 shadow-md shadow-indigo-500/5'
+              : 'bg-transparent border-transparent text-slate-400 hover:text-slate-300 hover:bg-slate-800/30'
+          }`}
+        >
+          🤝 Ativação & Comerciantes
+        </button>
+        <button
+          onClick={() => setActiveTab('security')}
+          className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold font-mono transition whitespace-nowrap border ${
+            activeTab === 'security'
+              ? 'bg-pink-600/10 border-pink-500/40 text-pink-400 shadow-md shadow-pink-500/5'
+              : 'bg-transparent border-transparent text-slate-400 hover:text-slate-300 hover:bg-slate-800/30'
+          }`}
+        >
+          ⚙️ Renovação & PIN
+        </button>
+      </div>
 
-          {/* 2. MISSÕES DISPONÍVEIS */}
-          <div className="bg-slate-900 border border-slate-850 rounded-2xl p-6 shadow-lg">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3.5 mb-5">
+      {/* DYNAMIC TAB CONTENTS */}
+      <div className="space-y-6">
+
+        {/* TAB 1: MISSIONS & CHALLENGES */}
+        {activeTab === 'missions' && (
+          <div className="bg-slate-900 border border-slate-850 rounded-2xl p-6 shadow-lg space-y-6 animate-fadeIn">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3.5">
               <div className="flex items-center gap-2">
                 <Trophy className="h-5 w-5 text-purple-400" />
                 <div>
@@ -619,7 +665,7 @@ export default function MerchantPanel() {
               </span>
             </div>
 
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {QUEST_CATALOG.map((quest) => {
                 const prog = quest.getProg(currentUser);
                 const pct = Math.min(100, Math.floor((prog / quest.target) * 100));
@@ -627,8 +673,8 @@ export default function MerchantPanel() {
                 const isReady = prog >= quest.target;
 
                 return (
-                  <div key={quest.id} className="bg-slate-950/40 border border-slate-850 rounded-xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4 transition duration-200 hover:border-slate-800">
-                    <div className="space-y-2 flex-1">
+                  <div key={quest.id} className="bg-slate-950/40 border border-slate-850 rounded-xl p-4 flex flex-col justify-between gap-4 transition duration-200 hover:border-slate-800">
+                    <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <h4 className="text-xs font-bold text-slate-200">{quest.title}</h4>
                         <span className="text-[10px] font-mono font-semibold text-purple-400">+{quest.rewardMPoints} mpoint</span>
@@ -650,7 +696,7 @@ export default function MerchantPanel() {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-end md:ml-4">
+                    <div className="flex items-center justify-end mt-2">
                       {claimed ? (
                         <span className="text-[10px] font-mono font-bold uppercase bg-slate-800 text-slate-500 border border-slate-750 px-3.5 py-1.5 rounded-lg">
                           Claimed
@@ -676,420 +722,452 @@ export default function MerchantPanel() {
               })}
             </div>
           </div>
+        )}
 
-          {/* cara ou coroa interactive simulator */}
-          <div className="bg-slate-900 border border-slate-850 rounded-2xl p-6 shadow-lg">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3.5 mb-5">
-              <div className="flex items-center gap-2">
-                <Gamepad2 className="h-5 w-5 text-indigo-400" />
-                <div>
-                  <h2 className="text-sm font-bold text-white uppercase tracking-wider font-mono">Cara ou Coroa (HOT) 🪙</h2>
-                  <p className="text-[10px] text-slate-400">Jogue partidas rápidas de HOT para atingir a meta do desafio e apostar créditos!</p>
-                </div>
+        {/* TAB 2: FINANCE & TRADE (MPOINTS EXCHANGE + COIN GAME) */}
+        {activeTab === 'finance' && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fadeIn">
+            
+            {/* Exchange Form */}
+            <div className="lg:col-span-5 bg-slate-900 border border-slate-850 rounded-2xl p-5 shadow-lg space-y-4">
+              <div>
+                <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono border-b border-slate-800 pb-2.5 mb-2 flex items-center gap-1.5">
+                  <Coins className="h-4 w-4 text-emerald-400" /> Trocar MPoints por MZN
+                </h3>
+                <p className="text-[11px] text-slate-400 leading-normal">
+                  Cada ponto mpoint de comerciante pode ser convertido por <strong className="text-emerald-300">5.4 MZN</strong> de crédito para a sua carteira de forma imediata.
+                </p>
               </div>
-            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-              <div className="space-y-4">
-                <div className="flex justify-center gap-3">
-                  <button
-                    onClick={() => setCoinChoice('cara')}
-                    className={`flex-1 py-2 rounded-lg text-xs font-bold transition font-mono border ${
-                      coinChoice === 'cara' 
-                        ? 'bg-purple-600/20 text-purple-400 border-purple-500/30' 
-                        : 'bg-slate-950/60 text-slate-500 border-slate-850 hover:text-slate-300'
-                    }`}
-                  >
-                    CARA (Heads)
-                  </button>
-                  <button
-                    onClick={() => setCoinChoice('coroa')}
-                    className={`flex-1 py-2 rounded-lg text-xs font-bold transition font-mono border ${
-                      coinChoice === 'coroa' 
-                        ? 'bg-purple-600/20 text-purple-400 border-purple-500/30' 
-                        : 'bg-slate-950/60 text-slate-500 border-slate-850 hover:text-slate-300'
-                    }`}
-                  >
-                    COROA (Tails)
-                  </button>
+              <form onSubmit={handleExchangePoints} className="space-y-3">
+                <div>
+                  <label className="block text-[9px] font-mono text-slate-500 uppercase mb-1">Seus Pontos Disponíveis</label>
+                  <div className="text-lg font-mono font-black text-emerald-400 bg-slate-950/60 border border-slate-850 p-2.5 rounded-lg text-center">
+                    {currentMPoints} mpoint
+                  </div>
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase mb-1">Aposta (MZN)</label>
+                  <label className="block text-[9px] font-mono text-slate-500 uppercase mb-1">Quantidade para Trocar</label>
                   <input
                     type="number"
                     min={1}
-                    max={currentUser.credits}
-                    value={coinBet}
-                    onChange={(e) => setCoinBet(Math.max(1, parseInt(e.target.value) || 0))}
-                    className="w-full rounded-lg bg-slate-950 border border-slate-850 px-3 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none font-mono"
+                    max={currentMPoints}
+                    value={exchangeAmount}
+                    onChange={(e) => setExchangeAmount(Math.max(1, parseInt(e.target.value) || 0))}
+                    className="w-full rounded-lg bg-slate-950 border border-slate-850 px-3 py-1.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none font-mono text-center"
                   />
+                </div>
+
+                <div className="text-center font-mono text-[10px] text-slate-400">
+                  Você receberá: <strong className="text-amber-400">{Math.floor(exchangeAmount * 5.4)} MZN</strong>
                 </div>
 
                 <button
-                  onClick={handleFlipCoin}
-                  disabled={isFlipping}
-                  className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold rounded-lg transition text-xs shadow-md shadow-indigo-500/10 flex items-center justify-center gap-2"
+                  type="submit"
+                  disabled={currentMPoints <= 0}
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold py-2 rounded-lg transition text-xs shadow-md shadow-emerald-500/10"
                 >
-                  {isFlipping ? 'Jogando Moeda...' : 'Lançar Moeda (HOT)'}
+                  Trocar Pontos por MZN
                 </button>
+              </form>
 
-                {flipFeedback && (
-                  <div className="text-xs font-mono p-3 rounded-lg border bg-slate-950/50 border-slate-800 text-slate-300 text-center">
-                    {flipFeedback}
-                  </div>
-                )}
-              </div>
-
-              {/* Graphical representation of the coin */}
-              <div className="flex flex-col items-center justify-center p-6 bg-slate-950/40 border border-slate-850 rounded-xl">
-                <div className={`h-24 w-24 rounded-full border-4 flex items-center justify-center text-2xl font-black font-mono transition duration-500 ${
-                  isFlipping 
-                    ? 'animate-spin border-purple-500/50 text-purple-400' 
-                    : flipResult === 'cara'
-                    ? 'border-amber-400 bg-amber-500/10 text-amber-400 shadow-lg shadow-amber-500/10'
-                    : flipResult === 'coroa'
-                    ? 'border-indigo-400 bg-indigo-500/10 text-indigo-400 shadow-lg shadow-indigo-500/10'
-                    : 'border-slate-700 bg-slate-800/20 text-slate-500'
-                }`}>
-                  {isFlipping ? '🔄' : flipResult ? flipResult[0].toUpperCase() : '🪙'}
+              {exchangeFeedback?.success && (
+                <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-mono rounded-lg p-2.5">
+                  {exchangeFeedback.success}
                 </div>
-                <span className="text-[10px] font-mono text-slate-500 mt-4 uppercase">
-                  {isFlipping ? 'Girando no ar...' : flipResult ? `Resultado: ${flipResult}` : 'Escolha Cara ou Coroa'}
-                </span>
-              </div>
+              )}
+              {exchangeFeedback?.error && (
+                <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-mono rounded-lg p-2.5">
+                  {exchangeFeedback.error}
+                </div>
+              )}
             </div>
-          </div>
-        </div>
 
-        {/* RIGHT COLUMN: Referral lists & Exchange widget */}
-        <div className="lg:col-span-4 space-y-6">
-
-          {/* 3. SISTEMA DE REIVINDICAÇÃO / PONTOS EXCHANGE */}
-          <div className="bg-slate-900 border border-slate-850 rounded-2xl p-5 shadow-lg">
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono border-b border-slate-800 pb-2.5 mb-4 flex items-center gap-1.5">
-              <Coins className="h-4 w-4 text-emerald-400" /> Trocar MPoints por MZN
-            </h3>
-
-            <p className="text-[11px] text-slate-400 leading-normal mb-4">
-              Cada ponto mpoint de comerciante pode ser convertido por <strong className="text-emerald-300">5.4 MZN</strong> de crédito para a sua carteira de forma imediata.
-            </p>
-
-            <form onSubmit={handleExchangePoints} className="space-y-3">
-              <div>
-                <label className="block text-[9px] font-mono text-slate-500 uppercase mb-1">Seus Pontos Disponíveis</label>
-                <div className="text-lg font-mono font-black text-emerald-400 bg-slate-950/60 border border-slate-850 p-2.5 rounded-lg text-center">
-                  {currentMPoints} mpoint
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[9px] font-mono text-slate-500 uppercase mb-1">Quantidade para Trocar</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={currentMPoints}
-                  value={exchangeAmount}
-                  onChange={(e) => setExchangeAmount(Math.max(1, parseInt(e.target.value) || 0))}
-                  className="w-full rounded-lg bg-slate-950 border border-slate-850 px-3 py-1.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none font-mono text-center"
-                />
-              </div>
-
-              <div className="text-center font-mono text-[10px] text-slate-400">
-                Você receberá: <strong className="text-amber-400">{Math.floor(exchangeAmount * 5.4)} MZN</strong>
-              </div>
-
-              <button
-                type="submit"
-                disabled={currentMPoints <= 0}
-                className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold py-2 rounded-lg transition text-xs shadow-md shadow-emerald-500/10"
-              >
-                Trocar Pontos por MZN
-              </button>
-            </form>
-
-            {exchangeFeedback?.success && (
-              <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-mono rounded-lg p-2.5 mt-3">
-                {exchangeFeedback.success}
-              </div>
-            )}
-            {exchangeFeedback?.error && (
-              <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-mono rounded-lg p-2.5 mt-3">
-                {exchangeFeedback.error}
-              </div>
-            )}
-          </div>
-
-          {/* RENOVAÇÃO DE CARGO FREE POR MPOINTS */}
-          <div className="bg-slate-900 border border-slate-850 rounded-2xl p-5 shadow-lg space-y-4">
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono border-b border-slate-800 pb-2.5 mb-2 flex items-center gap-1.5">
-              <Zap className="h-4 w-4 text-purple-400 animate-pulse" /> Reativação / Renovação de Cargo
-            </h3>
-
-            {['Merchant', 'Super Merchant', 'Mentor'].includes(currentUser.cargo) ? (
-              <div className="space-y-4">
-                <div className="bg-slate-950/60 border border-slate-850 p-3 rounded-xl space-y-2">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-400 font-medium">Cargo Atual:</span>
-                    <span className="font-bold text-purple-400">{currentUser.cargo}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-400 font-medium">Data de Expiração:</span>
-                    <span className="font-mono text-slate-300">
-                      {currentUser.merchant_expires_at 
-                        ? new Date(currentUser.merchant_expires_at).toLocaleDateString('pt-MZ')
-                        : 'Sem limite'
-                      }
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-400 font-medium">Prazo Restante:</span>
-                    <span className="font-bold text-amber-400 font-mono">
-                      {currentUser.merchant_expires_at 
-                        ? `${Math.max(0, Math.ceil((new Date(currentUser.merchant_expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))} dias`
-                        : 'Ilimitado'
-                      }
-                    </span>
+            {/* Cara ou Coroa HOT */}
+            <div className="lg:col-span-7 bg-slate-900 border border-slate-850 rounded-2xl p-6 shadow-lg space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3.5">
+                <div className="flex items-center gap-2">
+                  <Gamepad2 className="h-5 w-5 text-indigo-400" />
+                  <div>
+                    <h2 className="text-sm font-bold text-white uppercase tracking-wider font-mono">Cara ou Coroa (HOT) 🪙</h2>
+                    <p className="text-[10px] text-slate-400">Jogue partidas rápidas de HOT para atingir a meta do desafio e apostar créditos!</p>
                   </div>
                 </div>
+              </div>
 
-                {/* Target Cost info */}
-                <div className="text-xs text-slate-400 leading-normal space-y-1 bg-purple-950/20 border border-purple-900/30 rounded-xl p-3">
-                  <div className="font-bold text-purple-300 font-mono text-[10px] uppercase tracking-wider mb-1">Custo de Manutenção / Reativação:</div>
-                  <div className="flex justify-between font-mono text-[11px]">
-                    <span>• Merchant:</span>
-                    <span className="text-purple-400">150 MPoints</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                <div className="space-y-4">
+                  <div className="flex justify-center gap-3">
+                    <button
+                      onClick={() => setCoinChoice('cara')}
+                      className={`flex-1 py-2 rounded-lg text-xs font-bold transition font-mono border ${
+                        coinChoice === 'cara' 
+                          ? 'bg-purple-600/20 text-purple-400 border-purple-500/30' 
+                          : 'bg-slate-950/60 text-slate-500 border-slate-850 hover:text-slate-300'
+                      }`}
+                    >
+                      CARA (Heads)
+                    </button>
+                    <button
+                      onClick={() => setCoinChoice('coroa')}
+                      className={`flex-1 py-2 rounded-lg text-xs font-bold transition font-mono border ${
+                        coinChoice === 'coroa' 
+                          ? 'bg-purple-600/20 text-purple-400 border-purple-500/30' 
+                          : 'bg-slate-950/60 text-slate-500 border-slate-850 hover:text-slate-300'
+                      }`}
+                    >
+                      COROA (Tails)
+                    </button>
                   </div>
-                  <div className="flex justify-between font-mono text-[11px]">
-                    <span>• Super Merchant:</span>
-                    <span className="text-purple-400">250 MPoints</span>
-                  </div>
-                  <div className="flex justify-between font-mono text-[11px]">
-                    <span>• Mentor:</span>
-                    <span className="text-purple-400">350 MPoints</span>
-                  </div>
-                </div>
 
-                {/* Actions */}
-                <div className="space-y-2.5">
+                  <div>
+                    <label className="block text-[10px] font-mono text-slate-400 uppercase mb-1">Aposta (MZN)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={currentUser.credits}
+                      value={coinBet}
+                      onChange={(e) => setCoinBet(Math.max(1, parseInt(e.target.value) || 0))}
+                      className="w-full rounded-lg bg-slate-950 border border-slate-850 px-3 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none font-mono"
+                    />
+                  </div>
+
                   <button
-                    onClick={handleRenewCargo}
-                    disabled={
-                      (currentUser.mpoint || 0) < (currentUser.cargo === 'Mentor' ? 350 : currentUser.cargo === 'Super Merchant' ? 250 : 150)
-                    }
-                    className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-45 text-white font-black py-2.5 rounded-lg transition text-xs shadow-md shadow-indigo-600/10 uppercase tracking-wider font-mono flex items-center justify-center gap-1.5"
+                    onClick={handleFlipCoin}
+                    disabled={isFlipping}
+                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold rounded-lg transition text-xs shadow-md shadow-indigo-500/10 flex items-center justify-center gap-2"
                   >
-                    <RefreshCw className="h-4 w-4" /> Reativar Cargo Free por +30 Dias
+                    {isFlipping ? 'Jogando Moeda...' : 'Lançar Moeda (HOT)'}
                   </button>
 
-                  <p className="text-[10px] text-slate-500 text-center leading-normal">
-                    Seus pontos atuais: <span className="text-emerald-400 font-bold font-mono">{currentUser.mpoint || 0} mpoint</span>.
-                    Você precisa de <span className="text-purple-400 font-bold font-mono">{(currentUser.cargo === 'Mentor' ? 350 : currentUser.cargo === 'Super Merchant' ? 250 : 150)} mpoint</span> para reativar gratuitamente.
-                  </p>
+                  {flipFeedback && (
+                    <div className="text-xs font-mono p-3 rounded-lg border bg-slate-950/50 border-slate-800 text-slate-300 text-center">
+                      {flipFeedback}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ) : (
-              <div className="bg-slate-950/40 border border-slate-850 p-3 rounded-xl text-center">
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Seu cargo atual (<strong className="text-slate-300">{currentUser.cargo || 'User Normal'}</strong>) não é elegível para renovação por MPoints. Esta seção está disponível para:
-                </p>
-                <div className="flex justify-center gap-1.5 mt-2 font-mono text-[9px] font-bold text-purple-400">
-                  <span className="px-1.5 py-0.5 bg-purple-950/30 border border-purple-900/30 rounded">Merchant</span>
-                  <span className="px-1.5 py-0.5 bg-purple-950/30 border border-purple-900/30 rounded">Super Merchant</span>
-                  <span className="px-1.5 py-0.5 bg-purple-950/30 border border-purple-900/30 rounded">Mentor</span>
-                </div>
-              </div>
-            )}
 
-            {/* DEGRADATION RULE (PROFESSIONAL BRIEFING) */}
-            <div className="border-t border-slate-800/80 pt-3.5 space-y-2">
-              <span className="text-[9px] font-bold font-mono uppercase text-rose-400 flex items-center gap-1">
-                <AlertTriangle className="h-3 w-3 text-rose-400" /> Regra de Degradação de Cargo (Decay)
-              </span>
-              <p className="text-[10px] text-slate-400 leading-normal">
-                Caso sua parceria expire sem que você reative seu cargo, o sistema efetuará um rebaixamento automático no seu próximo login:
-              </p>
-              <div className="font-mono text-[9px] text-slate-500 space-y-1 bg-slate-950/50 p-2.5 rounded-lg border border-slate-850">
-                <div className="flex items-center gap-1">
-                  <span className="text-red-400 font-bold">Mentor</span>
-                  <span>➡️</span>
-                  <span className="text-amber-400 font-bold">Super Merchant</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="text-amber-400 font-bold">Super Merchant</span>
-                  <span>➡️</span>
-                  <span className="text-purple-400 font-bold">Merchant</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="text-purple-400 font-bold">Merchant</span>
-                  <span>➡️</span>
-                  <span className="text-slate-400 font-bold">User Normal (Verified)</span>
+                <div className="flex flex-col items-center justify-center p-6 bg-slate-950/40 border border-slate-850 rounded-xl">
+                  <div className={`h-24 w-24 rounded-full border-4 flex items-center justify-center text-2xl font-black font-mono transition duration-500 ${
+                    isFlipping 
+                      ? 'animate-spin border-purple-500/50 text-purple-400' 
+                      : flipResult === 'cara'
+                      ? 'border-amber-400 bg-amber-500/10 text-amber-400 shadow-lg shadow-amber-500/10'
+                      : flipResult === 'coroa'
+                      ? 'border-indigo-400 bg-indigo-500/10 text-indigo-400 shadow-lg shadow-indigo-500/10'
+                      : 'border-slate-700 bg-slate-800/20 text-slate-500'
+                  }`}>
+                    {isFlipping ? '🔄' : flipResult ? flipResult[0].toUpperCase() : '🪙'}
+                  </div>
+                  <span className="text-[10px] font-mono text-slate-500 mt-4 uppercase">
+                    {isFlipping ? 'Girando no ar...' : flipResult ? `Resultado: ${flipResult}` : 'Escolha Cara ou Coroa'}
+                  </span>
                 </div>
               </div>
             </div>
 
-            {renewalFeedback?.success && (
-              <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-mono rounded-lg p-2.5 mt-2">
-                {renewalFeedback.success}
+          </div>
+        )}
+
+        {/* TAB 3: PARTNERS & RECRUITMENT */}
+        {activeTab === 'partners' && (
+          <div className="space-y-6 animate-fadeIn">
+            {isChefRole ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                {/* List of recruited merchants */}
+                <div className="bg-slate-900 border border-slate-850 rounded-2xl p-5 shadow-lg space-y-4">
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono border-b border-slate-800 pb-2.5 flex items-center gap-1.5">
+                    <Users className="h-4 w-4 text-purple-400" /> Seus Comerciantes ({subordinates.length})
+                  </h3>
+
+                  <div className="space-y-3.5 max-h-[350px] overflow-y-auto pr-1">
+                    {subordinates.length > 0 ? (
+                      subordinates.map((merchant) => {
+                        const daysLeft = getDaysRemaining(merchant.merchant_expires_at);
+                        const pct = Math.max(0, Math.min(100, (daysLeft / 30) * 100));
+                        return (
+                          <div key={merchant.id} className="bg-slate-950/80 border border-slate-850 rounded-xl p-3 space-y-2.5">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-purple-400">@{merchant.username}</span>
+                              </div>
+                              <span className="text-[10px] font-mono text-slate-500">{daysLeft} dias restantes</span>
+                            </div>
+
+                            <div className="space-y-1">
+                              <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-850">
+                                <div 
+                                  className="h-full rounded-full bg-gradient-to-r from-purple-500 to-indigo-500" 
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="py-12 text-center text-slate-500 text-xs italic font-mono">
+                        Nenhum parceiro de comércio cadastrado sob sua tag ainda.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Create/Activate new merchant form */}
+                <div className="bg-slate-900 border border-slate-850 rounded-2xl p-5 shadow-lg relative space-y-4">
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono border-b border-slate-800 pb-2.5 flex items-center gap-1.5">
+                    <PlusCircle className="h-4 w-4 text-indigo-400" /> Ativar Parceiro (Merchant)
+                  </h3>
+
+                  <form onSubmit={handleCreateMerchant} className="space-y-3.5">
+                    <div>
+                      <label className="block text-[9px] font-mono text-slate-400 uppercase mb-1">Nome de Usuário</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: Carlos"
+                        value={targetUsername}
+                        onChange={(e) => setTargetUsername(e.target.value)}
+                        className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:border-purple-500 focus:outline-none font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[9px] font-mono text-slate-400 uppercase mb-1">Seu PIN Autorizador</label>
+                      <input
+                        type="password"
+                        required
+                        maxLength={4}
+                        placeholder="Ex: 1234"
+                        value={creatorPin}
+                        onChange={(e) => setCreatorPin(e.target.value)}
+                        className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:border-purple-500 focus:outline-none font-mono text-center tracking-widest"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold py-2 rounded-lg transition text-xs flex items-center justify-center gap-1.5"
+                    >
+                      {loading ? 'Processando...' : 'Ativar Merchant (1000 MZN)'}
+                    </button>
+                  </form>
+
+                  {successMsg && (
+                    <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-mono rounded-lg p-2.5">
+                      {successMsg}
+                    </div>
+                  )}
+                  {errorMsg && (
+                    <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-mono rounded-lg p-2.5">
+                      {errorMsg}
+                    </div>
+                  )}
+                </div>
+
               </div>
-            )}
-            {renewalFeedback?.error && (
-              <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-mono rounded-lg p-2.5 mt-2">
-                {renewalFeedback.error}
+            ) : (
+              <div className="bg-slate-900 border border-slate-850 rounded-2xl p-8 shadow-lg max-w-2xl mx-auto text-center space-y-5">
+                <div className="h-16 w-16 bg-indigo-500/10 border border-indigo-500/25 text-indigo-400 rounded-full flex items-center justify-center mx-auto text-2xl">
+                  🔒
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider font-mono">Seção Exclusiva de Supervisores</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed max-w-md mx-auto">
+                    A ativação direta de parceiros e a visualização de equipes de subordinados estão disponíveis apenas para Mentores, Líderes de Guilda e Fundadores autorizados com PIN de segurança ativo.
+                  </p>
+                </div>
+                <div className="bg-slate-950/40 border border-slate-850 p-4 rounded-xl text-[11px] font-mono text-slate-500 leading-normal max-w-md mx-auto">
+                  ⚡ Para subir de cargo e se candidatar a Mentor, continue acumulando MPoints em desafios, colabore nas salas e fale com a Administração Geral do Fã-clube!
+                </div>
               </div>
             )}
           </div>
+        )}
 
-          {/* 5. GESTÃO DE SUBORDINADOS (Para Chefes, Mentores, Founders) */}
-          {isChefRole && (
-            <div className="bg-slate-900 border border-slate-850 rounded-2xl p-5 shadow-lg">
-              <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono border-b border-slate-800 pb-2.5 mb-4 flex items-center gap-1.5">
-                <Users className="h-4 w-4 text-purple-400" /> Seus Comerciantes ({subordinates.length})
+        {/* TAB 4: RENEWAL & SECURITY */}
+        {activeTab === 'security' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fadeIn">
+            
+            {/* Cargo Renewal Card */}
+            <div className="bg-slate-900 border border-slate-850 rounded-2xl p-5 shadow-lg space-y-4">
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono border-b border-slate-800 pb-2.5 mb-2 flex items-center gap-1.5">
+                <Zap className="h-4 w-4 text-purple-400 animate-pulse" /> Reativação / Renovação de Cargo
               </h3>
 
-              <div className="space-y-3.5">
-                {subordinates.length > 0 ? (
-                  subordinates.map((merchant) => {
-                    const daysLeft = getDaysRemaining(merchant.merchant_expires_at);
-                    const pct = Math.max(0, Math.min(100, (daysLeft / 30) * 100));
-                    return (
-                      <div key={merchant.id} className="bg-slate-950/80 border border-slate-850 rounded-xl p-3 space-y-2.5">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-purple-400">@{merchant.username}</span>
-                          </div>
-                          <span className="text-[10px] font-mono text-slate-500">{daysLeft} dias restantes</span>
-                        </div>
-
-                        <div className="space-y-1">
-                          <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-850">
-                            <div 
-                              className="h-full rounded-full bg-gradient-to-r from-purple-500 to-indigo-500" 
-                              style={{ width: `${pct}%` }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="py-6 text-center text-slate-500 text-xs italic font-mono">
-                    Nenhum parceiro de comércio cadastrado sob sua tag ainda.
+              {['Merchant', 'Super Merchant', 'Mentor'].includes(currentUser.cargo) ? (
+                <div className="space-y-4">
+                  <div className="bg-slate-950/60 border border-slate-850 p-3 rounded-xl space-y-2">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-400 font-medium">Cargo Atual:</span>
+                      <span className="font-bold text-purple-400">{currentUser.cargo}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-400 font-medium">Data de Expiração:</span>
+                      <span className="font-mono text-slate-300">
+                        {currentUser.merchant_expires_at 
+                          ? new Date(currentUser.merchant_expires_at).toLocaleDateString('pt-MZ')
+                          : 'Sem limite'
+                        }
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-400 font-medium">Prazo Restante:</span>
+                      <span className="font-bold text-amber-400 font-mono">
+                        {currentUser.merchant_expires_at 
+                          ? `${Math.max(0, Math.ceil((new Date(currentUser.merchant_expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))} dias`
+                          : 'Ilimitado'
+                        }
+                      </span>
+                    </div>
                   </div>
-                )}
-              </div>
-            </div>
-          )}
 
-          {/* Registrar Comerciantes (Only for Mentors, Mentor Heads, Founders) */}
-          {isChefRole && (
-            <div className="bg-slate-900 border border-slate-850 rounded-2xl p-5 shadow-lg relative">
-              <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono border-b border-slate-800 pb-2.5 mb-4 flex items-center gap-1.5">
-                <PlusCircle className="h-4 w-4 text-indigo-400" /> Ativar Parceiro (Merchant)
+                  {/* Target Cost info */}
+                  <div className="text-xs text-slate-400 leading-normal space-y-1 bg-purple-950/20 border border-purple-900/30 rounded-xl p-3">
+                    <div className="font-bold text-purple-300 font-mono text-[10px] uppercase tracking-wider mb-1">Custo de Manutenção / Reativação:</div>
+                    <div className="flex justify-between font-mono text-[11px]">
+                      <span>• Merchant:</span>
+                      <span className="text-purple-400">150 MPoints</span>
+                    </div>
+                    <div className="flex justify-between font-mono text-[11px]">
+                      <span>• Super Merchant:</span>
+                      <span className="text-purple-400">250 MPoints</span>
+                    </div>
+                    <div className="flex justify-between font-mono text-[11px]">
+                      <span>• Mentor:</span>
+                      <span className="text-purple-400">350 MPoints</span>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="space-y-2.5">
+                    <button
+                      onClick={handleRenewCargo}
+                      disabled={
+                        (currentUser.mpoint || 0) < (currentUser.cargo === 'Mentor' ? 350 : currentUser.cargo === 'Super Merchant' ? 250 : 150)
+                      }
+                      className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-45 text-white font-black py-2.5 rounded-lg transition text-xs shadow-md shadow-indigo-600/10 uppercase tracking-wider font-mono flex items-center justify-center gap-1.5"
+                    >
+                      <RefreshCw className="h-4 w-4" /> Reativar Cargo Free por +30 Dias
+                    </button>
+
+                    <p className="text-[10px] text-slate-500 text-center leading-normal">
+                      Seus pontos atuais: <span className="text-emerald-400 font-bold font-mono">{currentUser.mpoint || 0} mpoint</span>.
+                      Você precisa de <span className="text-purple-400 font-bold font-mono">{(currentUser.cargo === 'Mentor' ? 350 : currentUser.cargo === 'Super Merchant' ? 250 : 150)} mpoint</span> para reativar gratuitamente.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-slate-950/40 border border-slate-850 p-3 rounded-xl text-center">
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Seu cargo atual (<strong className="text-slate-300">{currentUser.cargo || 'User Normal'}</strong>) não é elegível para renovação por MPoints. Esta seção está disponível para:
+                  </p>
+                  <div className="flex justify-center gap-1.5 mt-2 font-mono text-[9px] font-bold text-purple-400">
+                    <span className="px-1.5 py-0.5 bg-purple-950/30 border border-purple-900/30 rounded">Merchant</span>
+                    <span className="px-1.5 py-0.5 bg-purple-950/30 border border-purple-900/30 rounded">Super Merchant</span>
+                    <span className="px-1.5 py-0.5 bg-purple-950/30 border border-purple-900/30 rounded">Mentor</span>
+                  </div>
+                </div>
+              )}
+
+              {/* DEGRADATION RULE (PROFESSIONAL BRIEFING) */}
+              <div className="border-t border-slate-800/80 pt-3.5 space-y-2">
+                <span className="text-[9px] font-bold font-mono uppercase text-rose-400 flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3 text-rose-400" /> Regra de Degradação de Cargo (Decay)
+                </span>
+                <p className="text-[10px] text-slate-400 leading-normal">
+                  Caso sua parceria expire sem que você reative seu cargo, o sistema efetuará um rebaixamento automático no seu próximo login:
+                </p>
+                <div className="font-mono text-[9px] text-slate-500 space-y-1 bg-slate-950/50 p-2.5 rounded-lg border border-slate-850">
+                  <div className="flex items-center gap-1">
+                    <span className="text-red-400 font-bold">Mentor</span>
+                    <span>➡️</span>
+                    <span className="text-amber-400 font-bold">Super Merchant</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-amber-400 font-bold">Super Merchant</span>
+                    <span>➡️</span>
+                    <span className="text-purple-400 font-bold">Merchant</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-purple-400 font-bold">Merchant</span>
+                    <span>➡️</span>
+                    <span className="text-slate-400 font-bold">User Normal (Verified)</span>
+                  </div>
+                </div>
+              </div>
+
+              {renewalFeedback?.success && (
+                <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-mono rounded-lg p-2.5">
+                  {renewalFeedback.success}
+                </div>
+              )}
+              {renewalFeedback?.error && (
+                <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-mono rounded-lg p-2.5">
+                  {renewalFeedback.error}
+                </div>
+              )}
+            </div>
+
+            {/* PIN de Segurança Card */}
+            <div className="bg-slate-900 border border-slate-850 rounded-2xl p-5 shadow-lg space-y-4">
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono border-b border-slate-800 pb-2.5 flex items-center gap-1.5">
+                <Lock className="h-4 w-4 text-indigo-400" /> PIN de Segurança
               </h3>
 
-              <form onSubmit={handleCreateMerchant} className="space-y-3.5">
+              <form onSubmit={handleUpdatePin} className="space-y-3">
                 <div>
-                  <label className="block text-[9px] font-mono text-slate-400 uppercase mb-1">Nome de Usuário</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ex: Carlos"
-                    value={targetUsername}
-                    onChange={(e) => setTargetUsername(e.target.value)}
-                    className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:border-purple-500 focus:outline-none font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[9px] font-mono text-slate-400 uppercase mb-1">Seu PIN Autorizador</label>
+                  <label className="block text-[9px] font-mono text-slate-400 uppercase mb-1 font-semibold">PIN Atual</label>
                   <input
                     type="password"
                     required
                     maxLength={4}
                     placeholder="Ex: 1234"
-                    value={creatorPin}
-                    onChange={(e) => setCreatorPin(e.target.value)}
-                    className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:border-purple-500 focus:outline-none font-mono text-center tracking-widest"
+                    value={currentPin}
+                    onChange={(e) => setCurrentPin(e.target.value)}
+                    className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none font-mono text-center tracking-widest"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-mono text-slate-400 uppercase mb-1 font-semibold">Novo PIN (4 dígitos)</label>
+                  <input
+                    type="password"
+                    required
+                    maxLength={4}
+                    placeholder="Ex: 5678"
+                    value={newPin}
+                    onChange={(e) => setNewPin(e.target.value)}
+                    className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none font-mono text-center tracking-widest"
                   />
                 </div>
 
                 <button
                   type="submit"
-                  disabled={loading}
-                  className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold py-2 rounded-lg transition text-xs flex items-center justify-center gap-1.5"
+                  className="w-full bg-slate-800 hover:bg-slate-750 text-slate-300 font-bold py-2 rounded-lg transition text-xs"
                 >
-                  {loading ? 'Processando...' : 'Ativar Merchant (1000 MZN)'}
+                  Atualizar PIN de Segurança
                 </button>
               </form>
 
-              {successMsg && (
-                <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-mono rounded-lg p-2.5 mt-3">
-                  {successMsg}
+              {pinSuccess && (
+                <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-mono rounded-lg p-2 text-center">
+                  {pinSuccess}
                 </div>
               )}
-              {errorMsg && (
-                <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-mono rounded-lg p-2.5 mt-3">
-                  {errorMsg}
+              {pinError && (
+                <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-mono rounded-lg p-2 text-center">
+                  {pinError}
                 </div>
               )}
             </div>
-          )}
 
-          {/* Manage PIN Card */}
-          <div className="bg-slate-900 border border-slate-850 rounded-2xl p-5 shadow-lg">
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono border-b border-slate-800 pb-2.5 mb-4 flex items-center gap-1.5">
-              <Lock className="h-4 w-4 text-indigo-400" /> PIN de Segurança
-            </h3>
-
-            <form onSubmit={handleUpdatePin} className="space-y-3">
-              <div>
-                <label className="block text-[9px] font-mono text-slate-400 uppercase mb-1 font-semibold">PIN Atual</label>
-                <input
-                  type="password"
-                  required
-                  maxLength={4}
-                  placeholder="Ex: 1234"
-                  value={currentPin}
-                  onChange={(e) => setCurrentPin(e.target.value)}
-                  className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none font-mono text-center tracking-widest"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[9px] font-mono text-slate-400 uppercase mb-1 font-semibold">Novo PIN (4 dígitos)</label>
-                <input
-                  type="password"
-                  required
-                  maxLength={4}
-                  placeholder="Ex: 5678"
-                  value={newPin}
-                  onChange={(e) => setNewPin(e.target.value)}
-                  className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none font-mono text-center tracking-widest"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="w-full bg-slate-800 hover:bg-slate-755 text-slate-300 font-bold py-2 rounded-lg transition text-xs"
-              >
-                Atualizar PIN de Segurança
-              </button>
-            </form>
-
-            {pinSuccess && (
-              <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-mono rounded-lg p-2 mt-3 text-center">
-                {pinSuccess}
-              </div>
-            )}
-            {pinError && (
-              <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-mono rounded-lg p-2 mt-3 text-center">
-                {pinError}
-              </div>
-            )}
           </div>
+        )}
 
-        </div>
       </div>
 
     </div>

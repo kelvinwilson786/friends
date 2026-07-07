@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { api, db, subscribeToGlobalUpdates } from '../lib/supabase';
-import { Gift, Profile } from '../types';
+import { Gift, Profile, Anuncio } from '../types';
 import { motion } from 'motion/react';
 import { 
   ShoppingBag, Sparkles, Send, Coins, Users, Heart, Gift as GiftIcon, 
@@ -40,8 +40,12 @@ const EMOJI_PACKS = [
   { id: 'vip_emojis', name: 'Pacote VIP (30 Emojis)', cost: 80, description: 'Seleção VIP de 30 emojis exclusivos de games, troféus de ouro, moedas e festa.', items: ['💫', '⚜️', '🔱', '👑', '🥂', '🍿', '🎰', '🎯', '🎮', '👾', '🎸', '🎷', '🎹', '🎬', '🎭', '🎪', '🎟️', '🏅', '🏆', '🥇', '🥈', '🥉'] }
 ];
 
-export default function MarketplaceSection() {
-  const [activeSubTab, setActiveSubTab] = useState<'gifts' | 'divinos' | 'stickers_emojis' | 'colors24h'>('gifts');
+interface MarketplaceSectionProps {
+  onGoToChat?: () => void;
+}
+
+export default function MarketplaceSection({ onGoToChat }: MarketplaceSectionProps = {}) {
+  const [activeSubTab, setActiveSubTab] = useState<'gifts' | 'divinos' | 'stickers_emojis' | 'colors24h' | 'active_rooms' | 'anuncios'>('gifts');
   
   const [gifts, setGifts] = useState<Gift[]>([]);
   const [users, setUsers] = useState<Profile[]>([]);
@@ -53,8 +57,19 @@ export default function MarketplaceSection() {
   const [purchasedColors, setPurchasedColors] = useState<string[]>([]);
   const [activeColor, setActiveColor] = useState<string | null>(null);
   
+  // Gift Command Builder States
+  const [giftCommandType, setGiftCommandType] = useState<'individual' | 'all' | 'shower'>('individual');
+  const [commandUser, setCommandUser] = useState('');
+  const [commandShowerQty, setCommandShowerQty] = useState('5');
+  const [copiedCommand, setCopiedCommand] = useState(false);
+  
   // Megafone form
   const [megafoneText, setMegafoneText] = useState('');
+
+  // Anúncio Form
+  const [adText, setAdText] = useState('');
+  const [adDuration, setAdDuration] = useState<number>(1);
+  const [allAds, setAllAds] = useState<Anuncio[]>([]);
   
   // Feedback Messages
   const [successMsg, setSuccessMsg] = useState('');
@@ -75,6 +90,11 @@ export default function MarketplaceSection() {
 
     const activeCol = localStorage.getItem(`fcfunz_active_color_${db.getActiveProfile().id}`);
     setActiveColor(activeCol);
+
+    // Load active announcements
+    api.getAnuncios().then(ads => {
+      setAllAds(ads);
+    }).catch(err => console.error(err));
   };
 
   useEffect(() => {
@@ -227,6 +247,44 @@ export default function MarketplaceSection() {
     }
   };
 
+  const getAdCost = (dias: number) => {
+    if (dias === 1) return 50;
+    if (dias === 3) return 120;
+    if (dias === 7) return 250;
+    return 50 * dias;
+  };
+
+  const handleCreateAnuncio = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    if (!adText.trim()) {
+      setErrorMsg('Por favor, insira o texto do anúncio.');
+      return;
+    }
+
+    if (adText.trim().length > 140) {
+      setErrorMsg('O texto do anúncio não pode ultrapassar 140 caracteres para garantir o visual elegante do rodapé.');
+      return;
+    }
+
+    const custo = getAdCost(adDuration);
+    if (currentUser.credits < custo) {
+      setErrorMsg(`Você não tem MZN suficiente para esta duração (precisa de ${custo} MZN).`);
+      return;
+    }
+
+    try {
+      await api.createAnuncio(adText, adDuration, custo);
+      setSuccessMsg(`📢 Anúncio publicado com sucesso! Ele será exibido de forma aleatória no rodapé por ${adDuration} dia(s).`);
+      setAdText('');
+      loadData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Erro ao criar o anúncio.');
+    }
+  };
+
   const handleUseOracle = async () => {
     setErrorMsg('');
     setSuccessMsg('');
@@ -368,6 +426,28 @@ export default function MarketplaceSection() {
         >
           <Paintbrush className="h-4 w-4" /> Cores de Texto (24h)
         </button>
+
+        <button
+          onClick={() => { setActiveSubTab('anuncios'); setErrorMsg(''); setSuccessMsg(''); }}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold font-sans tracking-wide transition flex items-center gap-2 shrink-0 border ${
+            activeSubTab === 'anuncios'
+              ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/10'
+              : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+          }`}
+        >
+          <Megaphone className="h-4 w-4" /> Criar Anúncio (MZN) 📢
+        </button>
+
+        <button
+          onClick={() => { setActiveSubTab('active_rooms'); setErrorMsg(''); setSuccessMsg(''); }}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold font-sans tracking-wide transition flex items-center gap-2 shrink-0 border ${
+            activeSubTab === 'active_rooms'
+              ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/10'
+              : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+          }`}
+        >
+          <Users className="h-4 w-4" /> Salas & Usuários Ativos 👥
+        </button>
       </div>
 
       {/* RENDER ACTIVE VIEW */}
@@ -413,116 +493,135 @@ export default function MarketplaceSection() {
                 </div>
               </div>
 
-              {/* Gift sending form */}
+              {/* Gift sending instructions and command generator */}
               {selectedGift && (
                 <motion.div
                   initial={{ opacity: 0, y: -5 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="bg-indigo-950/15 border border-indigo-900/40 rounded-xl p-5"
+                  className="bg-indigo-950/15 border border-indigo-900/40 rounded-xl p-5 space-y-4"
                 >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-indigo-900/30">
-                    <h3 className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
-                      <Send className="h-4 w-4 text-indigo-400" /> Enviar "{selectedGift.imagem} {selectedGift.nome}"
+                  <div className="border-b border-indigo-900/30 pb-3">
+                    <h3 className="text-xs font-black text-indigo-300 flex items-center gap-1.5 uppercase tracking-wider">
+                      <GiftIcon className="h-4 w-4 text-indigo-400" /> Instruções de Envio: "{selectedGift.imagem} {selectedGift.nome}"
                     </h3>
-                    
-                    <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800 self-start">
-                      <button
-                        type="button"
-                        onClick={() => { setSendType('single'); setRecipientId(''); }}
-                        className={`text-[10px] font-bold px-3 py-1 rounded-md transition-all ${
-                          sendType === 'single'
-                            ? 'bg-indigo-600 text-white'
-                            : 'text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        Mimo Individual / Grupo
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setSendType('shower'); }}
-                        className={`text-[10px] font-bold px-3 py-1 rounded-md transition-all flex items-center gap-1 ${
-                          sendType === 'shower'
-                            ? 'bg-indigo-600 text-white animate-pulse'
-                            : 'text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        Chuveiro (Shower) 🌊
-                      </button>
+                    <p className="text-[11px] text-slate-400 mt-1 leading-normal">
+                      ⚠️ <strong className="text-pink-400">Atenção:</strong> Não é possível enviar presentes diretamente da loja. Para presentear amigos, você deve copiar o comando abaixo e executá-lo dentro de uma sala de chat ativa!
+                    </p>
+                  </div>
+
+                  {/* Sub tabs to choose command type */}
+                  <div className="flex flex-wrap gap-1.5 p-1 bg-slate-950 rounded-lg border border-slate-850">
+                    <button
+                      type="button"
+                      onClick={() => setGiftCommandType('individual')}
+                      className={`text-[10px] font-bold px-3 py-1.5 rounded-md transition-all ${
+                        giftCommandType === 'individual'
+                          ? 'bg-indigo-600 text-white'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      Mimo Individual
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGiftCommandType('all')}
+                      className={`text-[10px] font-bold px-3 py-1.5 rounded-md transition-all ${
+                        giftCommandType === 'all'
+                          ? 'bg-indigo-600 text-white'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      Mimo para Todos na Sala
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGiftCommandType('shower')}
+                      className={`text-[10px] font-bold px-3 py-1.5 rounded-md transition-all flex items-center gap-1 ${
+                        giftCommandType === 'shower'
+                          ? 'bg-indigo-600 text-white'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      Chuveiro (Shower) 🌊
+                    </button>
+                  </div>
+
+                  {/* Dynamic inputs based on command type */}
+                  <div className="space-y-3">
+                    {giftCommandType === 'individual' && (
+                      <div>
+                        <label className="block text-[10px] font-mono text-indigo-400 uppercase tracking-wider mb-1">Destinatário (Nickname ou @username)</label>
+                        <input
+                          type="text"
+                          placeholder="Digite o nickname da pessoa (ex: kelvin)"
+                          value={commandUser}
+                          onChange={(e) => setCommandUser(e.target.value)}
+                          className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3.5 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                    )}
+
+                    {giftCommandType === 'shower' && (
+                      <div>
+                        <label className="block text-[10px] font-mono text-indigo-400 uppercase tracking-wider mb-1">Quantidade de Mimos por Pessoa</label>
+                        <select
+                          value={commandShowerQty}
+                          onChange={(e) => setCommandShowerQty(e.target.value)}
+                          className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        >
+                          <option value="1">1x presente para cada participante</option>
+                          <option value="3">3x presentes para cada participante (Super Shower)</option>
+                          <option value="5">5x presentes para cada participante (Mega Shower)</option>
+                          <option value="10">10x presentes para cada participante (Tempestade ⚡)</option>
+                          <option value="25">25x presentes para cada participante (Tsunami de Mimos 🌊)</option>
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Render generated command ready for copying */}
+                    <div className="space-y-1.5">
+                      <label className="block text-[10px] font-mono text-indigo-400 uppercase tracking-wider">Comando de Chat (Clique para copiar):</label>
+                      <div className="bg-slate-950/90 rounded-lg p-3 border border-slate-800 flex items-center justify-between gap-4 font-mono text-xs">
+                        <span className="text-amber-400 font-bold truncate select-all">
+                          {giftCommandType === 'individual' 
+                            ? `*gift @${commandUser.replace('@', '').trim() || 'username'} ${selectedGift.nome}`
+                            : giftCommandType === 'all'
+                            ? `*gift all ${selectedGift.nome}`
+                            : `*shower ${commandShowerQty} ${selectedGift.nome}`
+                          }
+                        </span>
+                        
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cmdText = giftCommandType === 'individual' 
+                              ? `*gift @${commandUser.replace('@', '').trim() || 'username'} ${selectedGift.nome}`
+                              : giftCommandType === 'all'
+                              ? `*gift all ${selectedGift.nome}`
+                              : `*shower ${commandShowerQty} ${selectedGift.nome}`;
+                            navigator.clipboard.writeText(cmdText);
+                            setCopiedCommand(true);
+                            setTimeout(() => setCopiedCommand(false), 2000);
+                          }}
+                          className="flex items-center gap-1 bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-400 px-3 py-1.5 rounded-md border border-indigo-500/20 text-[10px] font-bold transition font-sans shrink-0"
+                        >
+                          {copiedCommand ? <Check className="h-3 w-3 text-emerald-400" /> : <Send className="h-3 w-3" />}
+                          {copiedCommand ? 'Copiado!' : 'Copiar'}
+                        </button>
+                      </div>
                     </div>
                   </div>
 
-                  <form onSubmit={handleSendGift} className="space-y-4">
-                    {sendType === 'single' ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
-                        <div className="sm:col-span-8">
-                          <label className="block text-[10px] font-mono text-indigo-400 uppercase tracking-wider mb-1.5">Escolher Destinatário</label>
-                          <div className="relative">
-                            <select
-                              required
-                              value={recipientId}
-                              onChange={(e) => setRecipientId(e.target.value)}
-                              className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3.5 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 appearance-none"
-                            >
-                              <option value="">Selecione um usuário...</option>
-                              <option value="all">🎁 ENVIAR PARA TODOS NA SALA (+{selectedGift.valor * (users.filter(u => u.id !== currentUser.id).length || 1)} MZN)</option>
-                              {users.filter(u => u.id !== currentUser.id).map(u => (
-                                <option key={u.id} value={u.id}>@{u.username} ({u.nome}) - {selectedGift.valor} MZN</option>
-                              ))}
-                            </select>
-                            <Users className="absolute right-3 top-2.5 h-4 w-4 text-slate-500 pointer-events-none" />
-                          </div>
-                        </div>
-
-                        <div className="sm:col-span-4">
-                          <button
-                            type="submit"
-                            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2 rounded-lg transition flex items-center justify-center gap-1.5 shadow-md shadow-indigo-600/10"
-                          >
-                            <GiftIcon className="h-4 w-4" /> Enviar Presente
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
-                        <div className="sm:col-span-8">
-                          <label className="block text-[10px] font-mono text-indigo-400 uppercase tracking-wider mb-1.5">Múltiplos Presentes (Chuveiro / Shower)</label>
-                          <div className="relative">
-                            <select
-                              value={showerQuantity}
-                              onChange={(e) => setShowerQuantity(parseInt(e.target.value))}
-                              className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3.5 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 appearance-none"
-                            >
-                              <option value={1}>1x Presente para cada usuário ativo</option>
-                              <option value={3}>3x Presentes para cada usuário ativo (Super Shower)</option>
-                              <option value={5}>5x Presentes para cada usuário ativo (Mega Shower)</option>
-                              <option value={10}>10x Presentes para cada usuário ativo (Tempestade ⚡)</option>
-                              <option value={25}>25x Presentes para cada usuário ativo (Tsunami de Mimos 🌊)</option>
-                            </select>
-                            <Sparkles className="absolute right-3 top-2.5 h-4 w-4 text-slate-500 pointer-events-none" />
-                          </div>
-                        </div>
-
-                        <div className="sm:col-span-4">
-                          <button
-                            type="submit"
-                            className="w-full bg-gradient-to-r from-pink-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 text-white text-xs font-bold py-2 rounded-lg transition flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-600/20"
-                          >
-                            <Sparkles className="h-4 w-4 text-pink-200" /> Lançar Chuveiro!
-                          </button>
-                        </div>
-
-                        <div className="sm:col-span-12">
-                          <div className="bg-slate-950/60 rounded-lg p-3 border border-slate-800 text-[11px] text-slate-400 flex flex-col gap-1">
-                            <span className="font-semibold text-indigo-300">Resumo da Tempestade de Presentes:</span>
-                            <span>• Usuários que receberão: <strong className="text-white">{users.filter(u => u.id !== currentUser.id).length} pessoas</strong></span>
-                            <span>• Mimos por pessoa: <strong className="text-white">{showerQuantity}x</strong> de {selectedGift.imagem} {selectedGift.nome}</span>
-                            <span>• Custo Total do Chuveiro: <strong className="text-amber-400">{selectedGift.valor * showerQuantity * (users.filter(u => u.id !== currentUser.id).length || 1)} MZN</strong></span>
-                            <span className="text-[10px] text-pink-400/90 italic mt-1 font-mono">✦ Quem receber o chuveiro ganhará pontos de popularidade gigantescos e terá chance garantida de ganhar Black Diamonds! ✦</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </form>
+                  {/* Redirection button */}
+                  {onGoToChat && (
+                    <button
+                      type="button"
+                      onClick={onGoToChat}
+                      className="w-full bg-gradient-to-r from-pink-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 text-white text-xs font-bold py-2.5 rounded-lg transition flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-600/20"
+                    >
+                      <MessageSquare className="h-4 w-4" /> Ir para as Salas de Chat e Enviar!
+                    </button>
+                  )}
                 </motion.div>
               )}
             </div>
@@ -896,6 +995,222 @@ export default function MarketplaceSection() {
                       </div>
                     );
                   })}
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {activeSubTab === 'active_rooms' && (
+            <div className="space-y-6">
+              <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 backdrop-blur-sm">
+                <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-100 flex items-center gap-1.5">
+                      <Users className="h-4.5 w-4.5 text-indigo-400" /> Presença Global de Usuários
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5 font-sans">
+                      Abaixo você pode ver em quais salas de chat cada usuário está ativo no momento. Clique para voltar ou se juntar à mesma sala!
+                    </p>
+                  </div>
+                </div>
+
+                {/* Users List */}
+                <div className="mt-5 space-y-3">
+                  {(() => {
+                    const activeParticipants = db.room_participants.map(p => {
+                      const user = db.profiles.find(prof => prof.id === p.user_id);
+                      const room = db.salas.find(s => s.id === p.sala_id);
+                      return { participant: p, user, room };
+                    }).filter(item => item.user && item.room);
+
+                    if (activeParticipants.length === 0) {
+                      return (
+                        <div className="text-center py-8 text-slate-500 text-xs font-sans border border-dashed border-slate-800/80 rounded-xl bg-slate-950/20">
+                          <p className="text-lg">👥</p>
+                          <p className="mt-2 font-medium">Nenhum usuário ativo em salas no momento.</p>
+                          <p className="text-[10px] text-slate-600 mt-1">Seja o primeiro a iniciar uma conversa no Chat!</p>
+                        </div>
+                      );
+                    }
+
+                    return activeParticipants.map(({ user, room }) => {
+                      if (!user || !room) return null;
+                      return (
+                        <div
+                          key={`${user.id}-${room.id}`}
+                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-slate-800 bg-slate-950/40 hover:bg-slate-950/80 hover:border-slate-750 transition animate-fadeIn"
+                        >
+                          <div className="flex items-center gap-3">
+                            {/* Avatar */}
+                            <img
+                              src={user.avatar_url || `https://api.dicebear.com/7.x/identicon/svg?seed=${user.username}`}
+                              alt={user.username}
+                              className="h-10 w-10 rounded-full border border-slate-800 shrink-0 object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                            <div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-xs font-black text-slate-200">@{user.username}</span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">
+                                  Nível {user.nivel}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-400 mt-0.5">
+                                Ativo na sala: <strong className="text-indigo-400">💬 {room.nome}</strong>
+                              </p>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => {
+                              localStorage.setItem('fcfunz_active_room_id', room.id);
+                              if (onGoToChat) {
+                                onGoToChat();
+                              }
+                            }}
+                            className="bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold px-4 py-2 rounded-lg transition shrink-0 flex items-center gap-1 shadow-md shadow-indigo-600/10 cursor-pointer font-sans"
+                          >
+                            <MessageSquare className="h-3.5 w-3.5" /> Entrar na Sala
+                          </button>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeSubTab === 'anuncios' && (
+            <div className="space-y-6 animate-fadeIn">
+              
+              {/* INTRO & CREATE FORM */}
+              <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 backdrop-blur-sm">
+                <div className="pb-3 border-b border-slate-800">
+                  <h2 className="text-sm font-bold text-slate-100 flex items-center gap-1.5">
+                    <Megaphone className="h-4.5 w-4.5 text-indigo-400" /> Criar Anúncio no Rodapé (MZN) 📢
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5 leading-relaxed font-sans">
+                    Promova sua marca, canal, clã ou envie mimos para toda a comunidade. Seu texto passará em destaque no rodapé do FCFUNZ para todos os usuários logados!
+                  </p>
+                </div>
+
+                <form onSubmit={handleCreateAnuncio} className="mt-5 space-y-4">
+                  {/* TEXT AREA */}
+                  <div>
+                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1.5">
+                      Mensagem do Anúncio (Máx. 140 caracteres)
+                    </label>
+                    <div className="relative">
+                      <textarea
+                        required
+                        value={adText}
+                        onChange={(e) => setAdText(e.target.value.slice(0, 140))}
+                        placeholder="Ex: Entre no clã OS DESTRUIDORES na sala 3! / Vendo presentes raros, fale comigo no PV!"
+                        rows={3}
+                        className="w-full rounded-xl bg-slate-950 border border-slate-850 p-3 text-xs text-slate-200 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none font-sans"
+                      />
+                      <span className="absolute bottom-2.5 right-3 text-[10px] font-mono text-slate-600">
+                        {adText.length}/140
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* DURATION SELECTION */}
+                  <div>
+                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-2">
+                      Duração & Custo
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {[
+                        { dias: 1, label: '1 Dia', custo: 50, desc: 'Ideal para um teste rápido' },
+                        { dias: 3, label: '3 Dias', custo: 120, desc: 'Economize 30 MZN' },
+                        { dias: 7, label: '1 Semana', custo: 250, desc: 'Destaque contínuo, salve 100 MZN' }
+                      ].map(opt => (
+                        <button
+                          type="button"
+                          key={opt.dias}
+                          onClick={() => setAdDuration(opt.dias)}
+                          className={`p-3.5 rounded-xl border text-left transition duration-150 flex flex-col justify-between cursor-pointer ${
+                            adDuration === opt.dias
+                              ? 'bg-indigo-600/15 border-indigo-500 text-slate-100 shadow-md shadow-indigo-500/5'
+                              : 'bg-slate-950/60 border-slate-850 hover:bg-slate-950 hover:border-slate-800 text-slate-400'
+                          }`}
+                        >
+                          <div>
+                            <span className="text-xs font-black block font-sans">{opt.label}</span>
+                            <span className="text-[10px] text-slate-400 mt-0.5 leading-normal block font-sans">
+                              {opt.desc}
+                            </span>
+                          </div>
+                          <span className="text-xs font-mono font-black text-amber-400 mt-3 flex items-center gap-1 shrink-0">
+                            <Coins className="h-3 w-3" /> {opt.custo} MZN
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* SUBMIT BUTTON */}
+                  <div className="pt-2 flex justify-end">
+                    <button
+                      type="submit"
+                      className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black px-6 py-2.5 rounded-xl transition duration-150 flex items-center gap-2 shadow-lg shadow-indigo-600/15 cursor-pointer font-sans"
+                    >
+                      <Megaphone className="h-4 w-4" /> Publicar Anúncio por {getAdCost(adDuration)} MZN
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* ACTIVE ADS LIST */}
+              <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 backdrop-blur-sm">
+                <h3 className="text-xs font-mono text-slate-400 uppercase tracking-wider pb-3 border-b border-slate-800 flex items-center gap-1.5">
+                  🌟 Anúncios Ativos na Plataforma ({allAds.length})
+                </h3>
+
+                <div className="mt-4 space-y-3">
+                  {allAds.length === 0 ? (
+                    <div className="text-center py-6 text-slate-500 text-xs italic bg-slate-950/20 border border-dashed border-slate-850 rounded-xl font-sans">
+                      Nenhum anúncio ativo cadastrado no momento. Seja o primeiro a criar um!
+                    </div>
+                  ) : (
+                    allAds.map(ad => (
+                      <div
+                        key={ad.id}
+                        className="p-4 rounded-xl border border-slate-850 bg-slate-950/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-sans"
+                      >
+                        <div className="space-y-1.5 min-w-0 flex-1 pr-2">
+                          <p className="text-xs text-slate-200 font-semibold leading-relaxed break-words font-sans">
+                            "{ad.texto}"
+                          </p>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-500 font-mono">
+                            <span>
+                              Autor: <strong className="text-slate-400">@{ad.autor_username}</strong>
+                            </span>
+                            <span>•</span>
+                            <span>Expira em: {new Date(ad.expira_em).toLocaleDateString('pt-MZ')}</span>
+                            <span>•</span>
+                            <span className="text-indigo-400 font-bold bg-indigo-500/5 px-1.5 py-0.5 rounded border border-indigo-500/10">
+                              {ad.dias} {ad.dias === 1 ? 'dia' : 'dias'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2.5 shrink-0 self-end sm:self-center">
+                          <div className="text-right">
+                            <span className="text-[10px] text-slate-500 uppercase font-mono tracking-wider block">
+                              Visualizações
+                            </span>
+                            <span className="text-sm font-mono font-black text-emerald-400 block">
+                              👁️ {ad.visualizacoes}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
 

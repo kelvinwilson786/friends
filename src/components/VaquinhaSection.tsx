@@ -61,17 +61,17 @@ export default function VaquinhaSection() {
       benefit = 'Moldura de Avatar em Chamas 🔥';
     } else if (mt >= 500) {
       credits = 1600;
-      cargo = 'Merchant';
-      badge = 'Emblema Premium de Comerciante';
-      benefit = 'Permissões de Comerciante Autorizado 🔮';
+      cargo = 'Super Merchant';
+      badge = 'Emblema Premium de Super Comerciante';
+      benefit = 'Balão de Chat Roxo 🔮';
     } else if (mt >= 200) {
       credits = 600;
-      cargo = 'Guide';
+      cargo = 'Merchant';
       badge = 'Emblema de Ouro de Apoiador';
       benefit = 'Balão de Chat Dourado ✨';
     } else if (mt >= 100) {
       credits = 250;
-      cargo = 'Verified User';
+      cargo = 'Guide';
       badge = 'Emblema de Prata de Apoiador';
       benefit = 'Balão de Chat Azul 💙';
     } else if (mt >= 50) {
@@ -219,7 +219,7 @@ export default function VaquinhaSection() {
                     <td className="py-3 px-3 font-bold font-mono">100 MT</td>
                     <td className="py-3 px-3 font-bold text-amber-400">250 MZN</td>
                     <td className="py-3 px-3">
-                      <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/20">Verified User</span>
+                      <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-teal-500/20 text-teal-400 border border-teal-500/20">guide</span>
                     </td>
                     <td className="py-3 px-3 text-slate-300 font-sans text-[11px]">
                       Emblema de Prata + Balão de Chat Azul 💙
@@ -231,7 +231,7 @@ export default function VaquinhaSection() {
                     <td className="py-3 px-3 font-bold font-mono">200 MT</td>
                     <td className="py-3 px-3 font-bold text-amber-400">600 MZN</td>
                     <td className="py-3 px-3">
-                      <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-teal-500/20 text-teal-400 border border-teal-500/20">Guide</span>
+                      <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-purple-500/20 text-purple-400 border border-purple-500/20">merchant</span>
                     </td>
                     <td className="py-3 px-3 text-slate-300 font-sans text-[11px]">
                       Emblema de Ouro + Balão de Chat Dourado ✨
@@ -243,10 +243,10 @@ export default function VaquinhaSection() {
                     <td className="py-3 px-3 font-bold font-mono">500 MT</td>
                     <td className="py-3 px-3 font-bold text-amber-400">1.600 MZN</td>
                     <td className="py-3 px-3">
-                      <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-purple-500/20 text-purple-400 border border-purple-500/20">Merchant</span>
+                      <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-pink-500/20 text-pink-400 border border-pink-500/20">super Merchant</span>
                     </td>
                     <td className="py-3 px-3 text-slate-300 font-sans text-[11px]">
-                      Emblema Premium + Balão de Chat Roxo 🔮
+                      Emblema Premium de Super Comerciante + Balão de Chat Roxo 🔮
                     </td>
                   </tr>
 

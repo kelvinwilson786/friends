@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { api, db, subscribeToGlobalUpdates } from '../lib/supabase';
-import { Profile, UserCargo } from '../types';
+import { Profile, UserCargo, BADGE_CONFIG } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Award, CheckCircle, Shield, User, Users, Star, Lock,
@@ -23,185 +23,91 @@ interface BadgeDef {
   icon: string;
 }
 
-// Emblemas Base catalog according to requirements
-const BADGES_MAP: Record<string, BadgeDef> = {
-  verified: {
-    filename: 'vv.png',
-    name: 'Verified',
-    colorName: 'Verde',
-    textClass: 'text-emerald-400',
-    bgClass: 'bg-emerald-500/10',
-    borderClass: 'border-emerald-500/30',
-    description: 'Usuário verificado oficialmente na plataforma com autenticidade garantida.',
-    icon: '✅'
-  },
-  merchant: {
-    filename: 'M.png',
-    name: 'Merchant',
-    colorName: 'Roxo',
-    textClass: 'text-purple-400',
-    bgClass: 'bg-purple-500/10',
-    borderClass: 'border-purple-500/30',
-    description: 'Comerciante oficial autorizado a realizar transações, ativar parceiros e gerenciar créditos.',
-    icon: '🔮'
-  },
-  super_merchant: {
-    filename: 'M.png',
-    name: 'Super Merchant',
-    colorName: 'Rosa',
-    textClass: 'text-pink-400',
-    bgClass: 'bg-pink-500/10',
-    borderClass: 'border-pink-500/30',
-    description: 'Super Comerciante com limites ampliados, alto volume de comércio e relevância econômica.',
-    icon: '🌸'
-  },
-  guide: {
-    filename: 'g.png',
-    name: 'Guide',
-    colorName: 'Verde',
-    textClass: 'text-teal-400',
-    bgClass: 'bg-teal-500/10',
-    borderClass: 'border-teal-500/30',
-    description: 'Guia oficial encarregado de orientar novatos e moderar discussões públicas.',
-    icon: '🧭'
-  },
-  admin: {
-    filename: 'a.png',
-    name: 'Admin',
-    colorName: 'Laranja',
-    textClass: 'text-orange-400',
-    bgClass: 'bg-orange-500/10',
-    borderClass: 'border-orange-500/30',
-    description: 'Administrador global com plenos poderes de moderação, auditoria e ajustes do sistema.',
-    icon: '⚡'
-  },
-  founder: {
-    filename: 'f.png',
-    name: 'Founder',
-    colorName: 'Marrom',
-    textClass: 'text-amber-500',
-    bgClass: 'bg-amber-600/10',
-    borderClass: 'border-amber-600/30',
-    description: 'Fundador e criador original do ecossistema social e financeiro FCFUNZ.',
-    icon: '👑'
-  },
-  staff: {
-    filename: 's.png',
-    name: 'Staff',
-    colorName: 'Cinza',
-    textClass: 'text-slate-400',
-    bgClass: 'bg-slate-500/10',
-    borderClass: 'border-slate-500/20',
-    description: 'Membro oficial do suporte técnico e desenvolvimento operacional.',
-    icon: '🛠️'
-  },
-  hero: {
-    filename: 'H.png',
-    name: 'Hero',
-    colorName: 'Ciano',
-    textClass: 'text-cyan-400',
-    bgClass: 'bg-cyan-500/10',
-    borderClass: 'border-cyan-500/30',
-    description: 'Herói honorário que contribui significativamente com eventos e doações públicas.',
-    icon: '🛡️'
-  },
-  mentor: {
-    filename: 'MT.png',
-    name: 'Mentor',
-    colorName: 'Vermelho',
-    textClass: 'text-red-500',
-    bgClass: 'bg-red-500/10',
-    borderClass: 'border-red-500/30',
-    description: 'Mentor oficial responsável por guiar comerciantes e supervisionar o consórcio.',
-    icon: '🎯'
-  },
-  mentor_head: {
-    filename: 'v.png',
-    name: 'Mentor Head',
-    colorName: 'Vermelho',
-    textClass: 'text-rose-500',
-    bgClass: 'bg-rose-500/10',
-    borderClass: 'border-rose-500/30',
-    description: 'Chefe dos mentores e autoridade máxima na hierarquia de consórcios.',
-    icon: '🔥'
-  },
-  lucky: {
-    filename: 'lucky.png',
-    name: 'Lucky (charm)',
-    colorName: 'Amarelo/Dourado',
-    textClass: 'text-yellow-400',
-    bgClass: 'bg-yellow-500/10',
-    borderClass: 'border-yellow-500/30',
-    description: 'Emblema especial com ícone de charm. Concedido a usuários com sorte extraordinária em minijogos.',
-    icon: '🍀'
-  },
-  standard_user: {
-    filename: 'user.png',
-    name: 'Membro Comum',
-    colorName: 'Cinza claro',
-    textClass: 'text-slate-300',
-    bgClass: 'bg-slate-800/20',
-    borderClass: 'border-slate-850',
-    description: 'Membro registrado aproveitando a comunidade FCFUNZ.',
-    icon: '👤'
-  }
-};
-
 // Maps any user cargo to their custom list of badges (Emblem Hierarchy)
 export function getBadgesForCargo(cargo: string): BadgeDef[] {
-  const norm = cargo.toLowerCase().trim();
+  const norm = (cargo || 'Unverified User').toLowerCase().trim();
   
+  const badges: BadgeDef[] = [];
+  
+  const getBadge = (c: UserCargo): BadgeDef => {
+    const conf = BADGE_CONFIG[c];
+    return {
+      filename: `${conf.icon}.png`,
+      name: conf.name,
+      colorName: conf.textClass.includes('amber') ? 'Marrom/Dourado' :
+                 conf.textClass.includes('orange') ? 'Laranja' :
+                 conf.textClass.includes('teal') ? 'Verde' :
+                 conf.textClass.includes('red') ? 'Vermelho' :
+                 conf.textClass.includes('rose') ? 'Vermelho' :
+                 conf.textClass.includes('pink') ? 'Rosa' :
+                 conf.textClass.includes('purple') ? 'Roxo' :
+                 conf.textClass.includes('emerald') ? 'Verde' : 'Cinza',
+      textClass: conf.textClass,
+      bgClass: conf.bgClass,
+      borderClass: conf.borderClass,
+      description: conf.description,
+      icon: conf.icon
+    };
+  };
+
   if (norm === 'founder') {
-    return [BADGES_MAP.verified, BADGES_MAP.founder];
-  }
-  if (norm === 'global admin' || norm === 'gadmin' || norm === 'admin') {
-    return [BADGES_MAP.verified, BADGES_MAP.admin];
-  }
-  if (norm === 'mentor head') {
-    return [BADGES_MAP.verified, BADGES_MAP.mentor_head, BADGES_MAP.mentor];
-  }
-  if (norm === 'mentor') {
-    return [BADGES_MAP.verified, BADGES_MAP.mentor];
-  }
-  if (norm === 'super merchant') {
-    return [BADGES_MAP.verified, BADGES_MAP.super_merchant];
-  }
-  if (norm === 'merchant') {
-    return [BADGES_MAP.verified, BADGES_MAP.merchant];
-  }
-  if (norm === 'merchant guide' || norm === 'm-guide') {
-    return [BADGES_MAP.verified, BADGES_MAP.merchant, BADGES_MAP.guide];
-  }
-  if (norm === 'super merchant guide' || norm === 's-guide') {
-    return [BADGES_MAP.verified, BADGES_MAP.super_merchant, BADGES_MAP.guide];
-  }
-  if (norm === 'guide') {
-    return [BADGES_MAP.verified, BADGES_MAP.guide];
-  }
-  if (norm === 'merchant staff' || norm === 'm-staff') {
-    return [BADGES_MAP.verified, BADGES_MAP.merchant, BADGES_MAP.staff];
-  }
-  if (norm === 'staff') {
-    return [BADGES_MAP.verified, BADGES_MAP.staff];
-  }
-  if (norm === 'merchant hero' || norm === 'm-hero') {
-    return [BADGES_MAP.verified, BADGES_MAP.merchant, BADGES_MAP.hero];
-  }
-  if (norm === 'hero') {
-    return [BADGES_MAP.hero];
-  }
-  if (norm === 'lucky user' || norm === 'lucky') {
-    return [BADGES_MAP.lucky];
-  }
-  if (norm === 'gameman') {
-    return [BADGES_MAP.verified];
-  }
-  if (norm === 'verified user') {
-    return [BADGES_MAP.verified];
+    badges.push(getBadge('Verified User'));
+    badges.push(getBadge('Founder'));
+  } else if (norm === 'global admin' || norm === 'gadmin' || norm === 'admin') {
+    badges.push(getBadge('Verified User'));
+    badges.push(getBadge('Global Admin'));
+  } else if (norm === 'mentor head') {
+    badges.push(getBadge('Verified User'));
+    badges.push(getBadge('Mentor Head'));
+    badges.push(getBadge('Mentor'));
+  } else if (norm === 'mentor') {
+    badges.push(getBadge('Verified User'));
+    badges.push(getBadge('Mentor'));
+  } else if (norm === 'super merchant') {
+    badges.push(getBadge('Verified User'));
+    badges.push(getBadge('Super Merchant'));
+  } else if (norm === 'merchant') {
+    badges.push(getBadge('Verified User'));
+    badges.push(getBadge('Merchant'));
+  } else if (norm === 'merchant guide' || norm === 'm-guide') {
+    badges.push(getBadge('Verified User'));
+    badges.push(getBadge('Merchant'));
+    badges.push(getBadge('Guide'));
+  } else if (norm === 'super merchant guide' || norm === 's-guide') {
+    badges.push(getBadge('Verified User'));
+    badges.push(getBadge('Super Merchant'));
+    badges.push(getBadge('Guide'));
+  } else if (norm === 'guide') {
+    badges.push(getBadge('Verified User'));
+    badges.push(getBadge('Guide'));
+  } else if (norm === 'merchant staff' || norm === 'm-staff') {
+    badges.push(getBadge('Verified User'));
+    badges.push(getBadge('Merchant'));
+    badges.push(getBadge('Staff'));
+  } else if (norm === 'staff') {
+    badges.push(getBadge('Verified User'));
+    badges.push(getBadge('Staff'));
+  } else if (norm === 'merchant hero' || norm === 'm-hero') {
+    badges.push(getBadge('Verified User'));
+    badges.push(getBadge('Merchant'));
+    badges.push(getBadge('Hero'));
+  } else if (norm === 'hero') {
+    badges.push(getBadge('Hero'));
+  } else if (norm === 'lucky user' || norm === 'lucky') {
+    badges.push(getBadge('Lucky User'));
+  } else if (norm === 'verified user') {
+    badges.push(getBadge('Verified User'));
+  } else if (norm === 'chatroom moderator' || norm === 'moderator') {
+    badges.push(getBadge('Verified User'));
+    badges.push(getBadge('Chatroom Moderator'));
+  } else if (norm === 'chatroom manager' || norm === 'manager') {
+    badges.push(getBadge('Verified User'));
+    badges.push(getBadge('Chatroom Manager'));
+  } else {
+    badges.push(getBadge('Unverified User'));
   }
   
-  // Standard User
-  return [BADGES_MAP.standard_user];
+  return badges;
 }
 
 // Maps cargo to custom nickname styling and color description
@@ -251,22 +157,41 @@ export function getCargoNicknameStyle(cargo: string) {
 }
 
 export function UserBadgesInline({ cargo, className = "ml-1.5" }: { cargo: string; className?: string }) {
+  const [, setTick] = useState(0);
+  
+  useEffect(() => {
+    const handleUpdate = () => setTick(t => t + 1);
+    window.addEventListener('badge_config_updated', handleUpdate);
+    return () => window.removeEventListener('badge_config_updated', handleUpdate);
+  }, []);
+
   const badges = getBadgesForCargo(cargo || 'Unverified User');
-  // Filter out standard common member to only show distinctive badges inline
-  const filteredBadges = badges.filter(b => b.filename !== 'user.png');
-  if (filteredBadges.length === 0) return null;
+  if (badges.length === 0) return null;
 
   return (
     <span className={`inline-flex items-center gap-1 shrink-0 align-middle ${className}`}>
-      {filteredBadges.map((badge, idx) => (
-        <span
-          key={idx}
-          title={`${badge.name} (${badge.filename}) - ${badge.description}`}
-          className={`w-4 h-4 rounded flex items-center justify-center text-[10px] select-none cursor-help shadow-sm border ${badge.bgClass} ${badge.borderClass} ${badge.textClass} hover:scale-110 transition-transform`}
-        >
-          {badge.icon}
-        </span>
-      ))}
+      {badges.map((badge, idx) => {
+        const isImage = badge.icon && (
+          badge.icon.startsWith('data:image/') || 
+          badge.icon.startsWith('http://') || 
+          badge.icon.startsWith('https://') || 
+          badge.icon.includes('/') || 
+          badge.icon.includes('.')
+        );
+        return (
+          <span
+            key={idx}
+            title={`${badge.name} - ${badge.description}`}
+            className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] overflow-hidden select-none cursor-help shadow-sm border ${badge.bgClass} ${badge.borderClass} hover:scale-125 hover:rotate-6 transition-all duration-200`}
+          >
+            {isImage ? (
+              <img src={badge.icon} alt={badge.name} className="w-full h-full object-cover rounded-full" />
+            ) : (
+              badge.icon
+            )}
+          </span>
+        );
+      })}
     </span>
   );
 }
@@ -508,9 +433,6 @@ export default function BadgesSection() {
                             {selectedProfile.pais === 'MZ' ? 'MZ 🇲🇿' : 'BR 🇧🇷'}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          Nome Completo: <strong className="text-slate-200">{selectedProfile.nome || 'N/A'} {selectedProfile.sobrenome || ''}</strong>
-                        </p>
                         <p className="text-[10px] text-slate-500 font-mono mt-0.5">
                           Cor do Nickname: <strong className="text-slate-300 font-semibold">{nickStyle?.label}</strong>
                         </p>

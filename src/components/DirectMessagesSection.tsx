@@ -10,6 +10,7 @@ import { motion } from 'motion/react';
 import { 
   MessageSquare, Send, Search, Users, AlertCircle, Clock, Check, CheckCheck 
 } from 'lucide-react';
+import { UserBadgesInline, getCargoNicknameStyle } from './BadgesSection';
 
 interface DirectMessagesSectionProps {
   initialRecipientId: string | null;
@@ -122,8 +123,11 @@ export default function DirectMessagesSection({ initialRecipientId, clearInitial
                   >
                     <img src={u.avatar_url || ''} alt={u.username} className="w-7 h-7 rounded-full border border-slate-800" />
                     <div>
-                      <p className="text-xs font-bold text-slate-200">{u.username}</p>
-                      <p className="text-[10px] text-slate-500">{u.nome} {u.sobrenome}</p>
+                      <p className={`text-xs font-bold flex items-center gap-1 ${getCargoNicknameStyle(u.cargo).text}`}>
+                        {u.username}
+                        <UserBadgesInline cargo={u.cargo} className="ml-1" />
+                      </p>
+                      <p className="text-[10px] text-slate-500 font-mono">{u.cargo}</p>
                     </div>
                   </div>
                 ))
@@ -159,7 +163,10 @@ export default function DirectMessagesSection({ initialRecipientId, clearInitial
                           <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-slate-950 bg-emerald-500" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-bold text-slate-200 truncate">{user.username}</p>
+                          <p className={`text-xs font-bold truncate flex items-center gap-1 ${getCargoNicknameStyle(user.cargo).text}`}>
+                            {user.username}
+                            <UserBadgesInline cargo={user.cargo} className="ml-1" />
+                          </p>
                           <p className="text-[10px] text-slate-400 truncate mt-0.5">{lastMsg.conteudo}</p>
                         </div>
                       </div>
@@ -186,8 +193,11 @@ export default function DirectMessagesSection({ initialRecipientId, clearInitial
               <div className="flex items-center gap-2.5">
                 <img src={activeRecipient.avatar_url || ''} alt={activeRecipient.username} className="w-9 h-9 rounded-full border-2 border-indigo-500 object-cover" />
                 <div>
-                  <h3 className="text-xs font-bold text-slate-100">{activeRecipient.username}</h3>
-                  <p className="text-[10px] text-slate-400 mt-0.5">{activeRecipient.nome} {activeRecipient.sobrenome} • {activeRecipient.cargo}</p>
+                  <h3 className={`text-xs font-bold flex items-center gap-1 ${getCargoNicknameStyle(activeRecipient.cargo).text}`}>
+                    {activeRecipient.username}
+                    <UserBadgesInline cargo={activeRecipient.cargo} className="ml-1" />
+                  </h3>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{activeRecipient.cargo}</p>
                 </div>
               </div>
             </div>

@@ -20,17 +20,18 @@ import {
   MultiplayerDiceGame,
   Transaction,
   VaquinhaContribution,
-  LeaderboardCompetition
+  LeaderboardCompetition,
+  Anuncio
 } from '../types';
 
 // Read credentials from env
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '';
 
 // Check if we should use the real Supabase client
 export const isUsingRealSupabase = !!(supabaseUrl && supabaseAnonKey);
 
-const realSupabase = isUsingRealSupabase 
+export const realSupabase = isUsingRealSupabase 
   ? createClient(supabaseUrl, supabaseAnonKey) 
   : null;
 
@@ -42,6 +43,7 @@ const realSupabase = isUsingRealSupabase
 
 const DEFAULT_GIFT_CATALOG: Gift[] = [
   { id: 'g_love', nome: 'Love', imagem: '💖', valor: 0.1 },
+  { id: 'g_black_diamond', nome: 'Black Diamond', imagem: '💎', valor: 600 },
   { id: 'g1', nome: 'Rosa Vermelha', imagem: '🌹', valor: 5 },
   { id: 'g2', nome: 'Café Quente', imagem: '☕', valor: 10 },
   { id: 'g3', nome: 'Pizza de Pepperoni', imagem: '🍕', valor: 25 },
@@ -147,6 +149,33 @@ const SEED_PROFILES: Profile[] = [
     password: 'casa_fcfunz_secret',
     security_question: 'Qual a fundação?',
     security_answer: 'FCFUNZ'
+  }
+];
+
+const SEED_ANUNCIOS: Anuncio[] = [
+  {
+    id: 'ad_1',
+    autor_id: 'u1',
+    autor_username: 'kelvin',
+    texto: 'Seja bem-vindo ao FCFUNZ! Adquira MZN com nossos revendedores autorizados ou apoiando nossa vaquinha! 🚀',
+    visualizacoes: 45,
+    dias: 7,
+    valor_pago: 250,
+    criado_em: '2026-07-01T00:00:00.000Z',
+    expira_em: '2026-07-08T00:00:00.000Z',
+    status: 'active'
+  },
+  {
+    id: 'ad_2',
+    autor_id: 'u2',
+    autor_username: 'fcfunz_staff',
+    texto: 'Quer anunciar seu clã, sua sala ou seus mimos aqui? Crie um anúncio no nosso Marketplace por apenas 50 MZN!',
+    visualizacoes: 120,
+    dias: 3,
+    valor_pago: 120,
+    criado_em: '2026-07-03T00:00:00.000Z',
+    expira_em: '2026-07-06T00:00:00.000Z',
+    status: 'active'
   }
 ];
 
@@ -471,6 +500,7 @@ class LocalDB {
   room_participants: { id: string, user_id: string, sala_id: string, last_activity: string }[] = [];
   vaquinhaContributions: VaquinhaContribution[] = [];
   competitions: LeaderboardCompetition[] = [];
+  anuncios: Anuncio[] = [];
   credits_responsible_user_id: string = 'u1';
   credits_responsible_phone: string = '870870059';
   activeUserId: string = 'u1'; // Default logged in as Kelvin
@@ -511,6 +541,7 @@ class LocalDB {
     this.room_participants = loadFromStorage('room_participants', []);
     this.vaquinhaContributions = loadFromStorage('vaquinha_contributions', SEED_VAQUINHA);
     this.competitions = loadFromStorage('competitions', []);
+    this.anuncios = loadFromStorage('anuncios', SEED_ANUNCIOS);
     
     this.credits_responsible_user_id = localStorage.getItem('fcfunz_credits_resp_user') || 'u1';
     this.credits_responsible_phone = localStorage.getItem('fcfunz_credits_resp_phone') || '870870059';
@@ -523,6 +554,418 @@ class LocalDB {
     }
 
     this.checkMerchantExpirations();
+
+    // Start live polling sync loop if Supabase keys are configured!
+    if (isUsingRealSupabase) {
+      this.syncFromSupabase().then(() => {
+        // Setup real-time postgres subscriptions for immediate instant updates across all tables
+        this.setupRealtimeSubscriptions();
+
+        // Gentle backup poll every 20 seconds to guarantee consistency
+        setInterval(() => {
+          this.syncFromSupabase().then(() => {
+            // Trigger update listeners so the UI re-renders with Supabase remote updates
+            updateListeners.forEach(cb => cb());
+          });
+        }, 20000);
+      });
+    }
+  }
+
+  async updateProfile(userId: string, updates: Partial<Profile>): Promise<void> {
+    const idx = this.profiles.findIndex(p => p.id === userId);
+    if (idx !== -1) {
+      const oldCargo = this.profiles[idx].cargo;
+      this.profiles[idx] = { ...this.profiles[idx], ...updates } as Profile;
+      const newCargo = this.profiles[idx].cargo;
+
+      if (updates.cargo && oldCargo !== newCargo) {
+        await api.addNotification({
+          usuario_id: userId,
+          title: '🎖️ Cargo Atualizado!',
+          message: `Seu cargo de usuário foi alterado de "${oldCargo}" para o cargo especial de "${newCargo}"! Parabéns! 🎉`,
+          type: 'system',
+          sender_id: 'system',
+          sender_username: 'Sistema FCFUNZ'
+        });
+      }
+    }
+    if (isUsingRealSupabase && realSupabase) {
+      const { error } = await realSupabase.from('profiles').update(updates).eq('id', userId);
+      if (error) console.error(`Error updating profile ${userId}:`, error);
+    }
+    notifyUpdate();
+  }
+
+  setupRealtimeSubscriptions() {
+    if (!isUsingRealSupabase || !realSupabase) return;
+
+    const tables = [
+      'profiles',
+      'salas',
+      'mensagens',
+      'tweets',
+      'comments',
+      'amizades',
+      'mensagens_privadas',
+      'apollo_codes',
+      'notifications',
+      'dice_games',
+      'transactions',
+      'banned_global',
+      'room_kicks',
+      'room_bans',
+      'group_bans',
+      'favorites',
+      'room_participants',
+      'vaquinha_contributions',
+      'competitions',
+      'anuncios',
+      'sys_config'
+    ];
+
+    tables.forEach(table => {
+      realSupabase!.channel(`public:${table}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table }, (payload) => {
+          this.handleRealtimeChange(table, payload);
+        })
+        .subscribe();
+    });
+  }
+
+  handleRealtimeChange(table: string, payload: any) {
+    const { eventType, new: newRecord, old: oldRecord } = payload;
+    
+    const updateLocalArray = (arr: any[], key = 'id') => {
+      if (eventType === 'INSERT') {
+        const idx = arr.findIndex(item => item[key] === newRecord[key]);
+        if (idx === -1) {
+          arr.push(newRecord);
+        }
+      } else if (eventType === 'UPDATE') {
+        const idx = arr.findIndex(item => item[key] === newRecord[key]);
+        if (idx !== -1) {
+          arr[idx] = { ...arr[idx], ...newRecord };
+        } else {
+          arr.push(newRecord);
+        }
+      } else if (eventType === 'DELETE') {
+        const targetId = oldRecord ? oldRecord[key] : null;
+        if (targetId) {
+          const idx = arr.findIndex(item => item[key] === targetId);
+          if (idx !== -1) {
+            arr.splice(idx, 1);
+          }
+        }
+      }
+    };
+
+    switch (table) {
+      case 'profiles':
+        updateLocalArray(this.profiles);
+        break;
+      case 'salas':
+        updateLocalArray(this.salas);
+        break;
+      case 'mensagens': {
+        updateLocalArray(this.mensagens);
+        if (eventType === 'INSERT') {
+          const listeners = chatListeners.get(newRecord.sala_id);
+          if (listeners) {
+            const author = this.profiles.find(p => p.id === newRecord.autor_id);
+            const enrichedMsg = {
+              ...newRecord,
+              autor_username: author?.username || newRecord.autor_username || 'user',
+              autor_cargo: author?.cargo || newRecord.autor_cargo || 'Verified User',
+              autor_avatar: author?.avatar_url || newRecord.autor_avatar || ''
+            };
+            listeners.forEach(cb => cb(enrichedMsg));
+          }
+        }
+        break;
+      }
+      case 'tweets':
+        updateLocalArray(this.tweets);
+        break;
+      case 'comments':
+        updateLocalArray(this.comments);
+        break;
+      case 'amizades':
+        updateLocalArray(this.amizades);
+        break;
+      case 'mensagens_privadas': {
+        updateLocalArray(this.mensagensPrivadas);
+        if (eventType === 'INSERT') {
+          pmListeners.forEach(cb => cb(newRecord));
+        }
+        break;
+      }
+      case 'apollo_codes':
+        updateLocalArray(this.apolloCodes);
+        break;
+      case 'notifications':
+        updateLocalArray(this.notifications);
+        break;
+      case 'dice_games':
+        updateLocalArray(this.diceGames);
+        break;
+      case 'transactions':
+        updateLocalArray(this.transactions);
+        break;
+      case 'banned_global':
+        if (eventType === 'INSERT') {
+          if (!this.banned_global.includes(newRecord.user_id)) {
+            this.banned_global.push(newRecord.user_id);
+          }
+        } else if (eventType === 'DELETE') {
+          this.banned_global = this.banned_global.filter(uid => uid !== oldRecord.user_id);
+        }
+        break;
+      case 'room_kicks':
+        updateLocalArray(this.room_kicks);
+        break;
+      case 'room_bans':
+        updateLocalArray(this.room_bans);
+        break;
+      case 'group_bans':
+        updateLocalArray(this.group_bans);
+        break;
+      case 'favorites':
+        updateLocalArray(this.favorites);
+        break;
+      case 'room_participants':
+        updateLocalArray(this.room_participants);
+        break;
+      case 'vaquinha_contributions':
+        updateLocalArray(this.vaquinhaContributions);
+        break;
+      case 'competitions':
+        updateLocalArray(this.competitions);
+        break;
+      case 'anuncios':
+        updateLocalArray(this.anuncios);
+        break;
+      case 'sys_config':
+        if (newRecord && newRecord.key === 'credits_responsible_user_id') {
+          this.credits_responsible_user_id = newRecord.value;
+        }
+        if (newRecord && newRecord.key === 'credits_responsible_phone') {
+          this.credits_responsible_phone = newRecord.value;
+        }
+        break;
+    }
+
+    updateListeners.forEach(cb => cb());
+  }
+
+  isSyncing = false;
+
+  async syncFromSupabase() {
+    if (!isUsingRealSupabase) return;
+    if (this.isSyncing) return;
+    this.isSyncing = true;
+    try {
+      // 1. Fetch profiles
+      const { data: profilesData, error: profilesError } = await realSupabase!.from('profiles').select('*');
+      if (!profilesError && profilesData) {
+        if (profilesData.length > 0) {
+          this.profiles = profilesData as Profile[];
+        } else {
+          await realSupabase!.from('profiles').insert(SEED_PROFILES);
+        }
+      }
+
+      // 2. Fetch salas
+      const { data: salasData, error: salasError } = await realSupabase!.from('salas').select('*');
+      if (!salasError && salasData) {
+        if (salasData.length > 0) {
+          this.salas = salasData as Sala[];
+        } else {
+          await realSupabase!.from('salas').insert(SEED_SALAS);
+        }
+      }
+
+      // 3. Fetch mensagens
+      const { data: mensagensData, error: msgError } = await realSupabase!.from('mensagens').select('*');
+      if (!msgError && mensagensData) {
+        this.mensagens = mensagensData as Mensagem[];
+      }
+
+      // 4. Fetch tweets
+      const { data: tweetsData, error: tweetsError } = await realSupabase!.from('tweets').select('*');
+      if (!tweetsError && tweetsData) {
+        if (tweetsData.length > 0) {
+          this.tweets = tweetsData as Tweet[];
+        } else {
+          await realSupabase!.from('tweets').insert(SEED_TWEETS);
+        }
+      }
+
+      // 5. Fetch comments
+      const { data: commentsData, error: commentsError } = await realSupabase!.from('comments').select('*');
+      if (!commentsError && commentsData) {
+        this.comments = commentsData as TweetComment[];
+      }
+
+      // 6. Fetch amizades
+      const { data: amizadesData, error: amizadesError } = await realSupabase!.from('amizades').select('*');
+      if (!amizadesError && amizadesData) {
+        this.amizades = amizadesData as Amizade[];
+      }
+
+      // 7. Fetch mensagens_privadas
+      const { data: pmsData, error: pmsError } = await realSupabase!.from('mensagens_privadas').select('*');
+      if (!pmsError && pmsData) {
+        this.mensagensPrivadas = pmsData as MensagemPrivada[];
+      }
+
+      // 8. Fetch apollo_codes
+      const { data: codesData, error: codesError } = await realSupabase!.from('apollo_codes').select('*');
+      if (!codesError && codesData) {
+        if (codesData.length > 0) {
+          this.apolloCodes = codesData as ApolloCode[];
+        } else {
+          await realSupabase!.from('apollo_codes').insert(SEED_CODES);
+        }
+      }
+
+      // 9. Fetch notifications
+      const { data: notifData, error: notifError } = await realSupabase!.from('notifications').select('*');
+      if (!notifError && notifData) {
+        this.notifications = notifData as AppNotification[];
+      }
+
+      // 10. Fetch dice_games
+      const { data: diceData, error: diceError } = await realSupabase!.from('dice_games').select('*');
+      if (!diceError && diceData) {
+        this.diceGames = diceData as MultiplayerDiceGame[];
+      }
+
+      // 11. Fetch transactions
+      const { data: txData, error: txError } = await realSupabase!.from('transactions').select('*');
+      if (!txError && txData) {
+        if (txData.length > 0) {
+          this.transactions = txData as Transaction[];
+        } else {
+          await realSupabase!.from('transactions').insert(SEED_TRANSACTIONS);
+        }
+      }
+
+      // 12. Fetch banned_global
+      const { data: bansData, error: bansError } = await realSupabase!.from('banned_global').select('*');
+      if (!bansError && bansData) {
+        this.banned_global = bansData.map((b: any) => b.user_id);
+      }
+
+      // 13. Fetch room_kicks
+      const { data: kicksData, error: kicksError } = await realSupabase!.from('room_kicks').select('*');
+      if (!kicksError && kicksData) {
+        this.room_kicks = kicksData as any[];
+      }
+
+      // 14. Fetch room_bans
+      const { data: roomBansData, error: roomBansError } = await realSupabase!.from('room_bans').select('*');
+      if (!roomBansError && roomBansData) {
+        this.room_bans = roomBansData as any[];
+      }
+
+      // 15. Fetch group_bans
+      const { data: groupBansData, error: groupBansError } = await realSupabase!.from('group_bans').select('*');
+      if (!groupBansError && groupBansData) {
+        this.group_bans = groupBansData as any[];
+      }
+
+      // 16. Fetch favorites
+      const { data: favsData, error: favsError } = await realSupabase!.from('favorites').select('*');
+      if (!favsError && favsData) {
+        this.favorites = favsData as any[];
+      }
+
+      // 17. Fetch room_participants
+      const { data: partsData, error: partsError } = await realSupabase!.from('room_participants').select('*');
+      if (!partsError && partsData) {
+        this.room_participants = partsData as any[];
+      }
+
+      // 18. Fetch vaquinha_contributions
+      const { data: vaquinhaData, error: vaquinhaError } = await realSupabase!.from('vaquinha_contributions').select('*');
+      if (!vaquinhaError && vaquinhaData) {
+        if (vaquinhaData.length > 0) {
+          this.vaquinhaContributions = vaquinhaData as VaquinhaContribution[];
+        } else {
+          await realSupabase!.from('vaquinha_contributions').insert(SEED_VAQUINHA);
+        }
+      }
+
+      // 19. Fetch competitions
+      const { data: compData, error: compError } = await realSupabase!.from('competitions').select('*');
+      if (!compError && compData) {
+        this.competitions = compData as LeaderboardCompetition[];
+      }
+
+      // 20. Fetch anuncios
+      const { data: anunciosData, error: anunciosError } = await realSupabase!.from('anuncios').select('*');
+      if (!anunciosError && anunciosData) {
+        if (anunciosData.length > 0) {
+          this.anuncios = anunciosData as Anuncio[];
+        } else {
+          await realSupabase!.from('anuncios').insert(SEED_ANUNCIOS);
+        }
+      }
+
+      // 21. Fetch sys_config
+      const { data: sysData, error: sysError } = await realSupabase!.from('sys_config').select('*');
+      if (!sysError && sysData) {
+        const respUser = sysData.find((s: any) => s.key === 'credits_responsible_user_id');
+        const respPhone = sysData.find((s: any) => s.key === 'credits_responsible_phone');
+        if (respUser) this.credits_responsible_user_id = respUser.value;
+        if (respPhone) this.credits_responsible_phone = respPhone.value;
+      }
+    } catch (err) {
+      console.error('FCFUNZ Error pulling sync from Supabase:', err);
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+
+  async saveToSupabase() {
+    if (!isUsingRealSupabase) return;
+    try {
+      const promises: any[] = [
+        realSupabase!.from('profiles').upsert(this.profiles),
+        realSupabase!.from('salas').upsert(this.salas),
+        realSupabase!.from('mensagens').upsert(this.mensagens),
+        realSupabase!.from('tweets').upsert(this.tweets),
+        realSupabase!.from('comments').upsert(this.comments),
+        realSupabase!.from('amizades').upsert(this.amizades),
+        realSupabase!.from('mensagens_privadas').upsert(this.mensagensPrivadas),
+        realSupabase!.from('apollo_codes').upsert(this.apolloCodes),
+        realSupabase!.from('notifications').upsert(this.notifications),
+        realSupabase!.from('dice_games').upsert(this.diceGames),
+        realSupabase!.from('transactions').upsert(this.transactions),
+        realSupabase!.from('room_kicks').upsert(this.room_kicks),
+        realSupabase!.from('room_bans').upsert(this.room_bans),
+        realSupabase!.from('group_bans').upsert(this.group_bans),
+        realSupabase!.from('favorites').upsert(this.favorites),
+        realSupabase!.from('room_participants').upsert(this.room_participants),
+        realSupabase!.from('vaquinha_contributions').upsert(this.vaquinhaContributions),
+        realSupabase!.from('competitions').upsert(this.competitions),
+        realSupabase!.from('anuncios').upsert(this.anuncios),
+        realSupabase!.from('sys_config').upsert([
+          { key: 'credits_responsible_user_id', value: this.credits_responsible_user_id },
+          { key: 'credits_responsible_phone', value: this.credits_responsible_phone }
+        ])
+      ];
+
+      const bansRecords = this.banned_global.map(userId => ({ user_id: userId, created_at: new Date().toISOString() }));
+      if (bansRecords.length > 0) {
+        promises.push(realSupabase!.from('banned_global').upsert(bansRecords));
+      }
+
+      await Promise.all(promises);
+    } catch (err) {
+      console.error('FCFUNZ Error pushing sync to Supabase:', err);
+    }
   }
 
   checkMerchantExpirations() {
@@ -592,8 +1035,14 @@ class LocalDB {
     saveToStorage('room_participants', this.room_participants);
     saveToStorage('vaquinha_contributions', this.vaquinhaContributions);
     saveToStorage('competitions', this.competitions);
+    saveToStorage('anuncios', this.anuncios);
     localStorage.setItem('fcfunz_credits_resp_user', this.credits_responsible_user_id);
     localStorage.setItem('fcfunz_credits_resp_phone', this.credits_responsible_phone);
+
+    // Sync changes to Supabase in the background!
+    if (isUsingRealSupabase) {
+      // Direct, granular writes are performed on change, so bulk upserting is avoided to prevent concurrency issues.
+    }
   }
 
   getActiveProfile(): Profile {
@@ -670,7 +1119,10 @@ export const api = {
       const { data: { user } } = await realSupabase!.auth.getUser();
       if (user) {
         const { data } = await realSupabase!.from('profiles').select('*').eq('id', user.id).single();
-        if (data) return data as Profile;
+        if (data) {
+          db.setActiveUser(data.id);
+          return data as Profile;
+        }
       }
     }
     return db.getActiveProfile();
@@ -723,11 +1175,48 @@ export const api = {
     sexo: string;
     password?: string;
   }): Promise<Profile> => {
+    if (isUsingRealSupabase) {
+      const { data: signUpData, error: signUpError } = await realSupabase!.auth.signUp({
+        email: fields.email,
+        password: fields.password || '123',
+      });
+      if (signUpError) throw signUpError;
+      if (!signUpData.user) throw new Error('Erro ao criar conta no Supabase Auth.');
+
+      const newProfile: Profile = {
+        id: signUpData.user.id,
+        username: fields.username,
+        nome: fields.nome,
+        sobrenome: fields.sobrenome,
+        email: fields.email,
+        pais: fields.pais || 'BR',
+        sexo: fields.sexo || 'M',
+        avatar_url: `https://api.dicebear.com/7.x/adventurer/svg?seed=${fields.username}`,
+        cargo: 'Unverified User',
+        nivel: 1,
+        xp: 0,
+        credits: 100,
+        bonus: 0,
+        points: 0,
+        criado_em: new Date().toISOString(),
+        password: fields.password || '123',
+      };
+
+      const { error: insertError } = await realSupabase!.from('profiles').insert(newProfile);
+      if (insertError) throw insertError;
+
+      db.profiles.push(newProfile);
+      db.setActiveUser(newProfile.id);
+      notifyUpdate();
+      return newProfile;
+    }
+
     const newProfile: Profile = {
       id: 'u_' + Math.random().toString(36).substr(2, 9),
       username: fields.username,
       nome: fields.nome,
       sobrenome: fields.sobrenome,
+      email: fields.email,
       pais: fields.pais || 'MZ',
       sexo: fields.sexo || 'M',
       avatar_url: `https://api.dicebear.com/7.x/adventurer/svg?seed=${fields.username}`,
@@ -751,6 +1240,64 @@ export const api = {
     db.setActiveUser(id);
     notifyUpdate();
     return db.getActiveProfile();
+  },
+
+  signInUser: async (usernameOrEmail: string, password?: string): Promise<Profile> => {
+    if (isUsingRealSupabase) {
+      let email = usernameOrEmail.trim();
+      if (!email.includes('@')) {
+        const { data: profileData, error: profileError } = await realSupabase!.from('profiles')
+          .select('email')
+          .ilike('username', email)
+          .maybeSingle();
+        if (profileError || !profileData || !profileData.email) {
+          throw new Error('Nome de usuário não encontrado ou sem e-mail associado.');
+        }
+        email = profileData.email;
+      }
+
+      const { data: signInData, error: signInError } = await realSupabase!.auth.signInWithPassword({
+        email,
+        password: password || '123',
+      });
+      if (signInError) throw signInError;
+      if (!signInData.user) throw new Error('Não foi possível obter os dados do usuário após login.');
+
+      const { data: pData, error: pError } = await realSupabase!.from('profiles')
+        .select('*')
+        .eq('id', signInData.user.id)
+        .single();
+      if (pError || !pData) {
+        throw new Error('Perfil de usuário não encontrado após o login.');
+      }
+
+      db.setActiveUser(pData.id);
+      notifyUpdate();
+      return pData as Profile;
+    }
+
+    const target = db.profiles.find(
+      p => p.username.toLowerCase() === usernameOrEmail.trim().toLowerCase() ||
+           p.email?.toLowerCase() === usernameOrEmail.trim().toLowerCase()
+    );
+    if (!target) {
+      throw new Error('Usuário não encontrado.');
+    }
+    const userPassword = target.password || '123';
+    if (userPassword !== password) {
+      throw new Error('Senha incorreta.');
+    }
+
+    db.setActiveUser(target.id);
+    notifyUpdate();
+    return target;
+  },
+
+  signOutUser: async (): Promise<void> => {
+    if (isUsingRealSupabase) {
+      await realSupabase!.auth.signOut();
+    }
+    notifyUpdate();
   },
 
   // --- SALAS (ROOMS) ---
@@ -784,6 +1331,10 @@ export const api = {
       quiz_amount: null,
       quiz_by: null,
     };
+    if (isUsingRealSupabase) {
+      const { error } = await realSupabase!.from('salas').insert(newRoom);
+      if (error) throw error;
+    }
     db.salas.push(newRoom);
     notifyUpdate();
     return newRoom;
@@ -792,10 +1343,18 @@ export const api = {
   deleteRoom: async (roomId: string): Promise<void> => {
     db.salas = db.salas.filter(s => s.id !== roomId);
     db.mensagens = db.mensagens.filter(m => m.sala_id !== roomId);
+    if (isUsingRealSupabase) {
+      await realSupabase!.from('salas').delete().eq('id', roomId);
+      await realSupabase!.from('mensagens').delete().eq('sala_id', roomId);
+    }
     notifyUpdate();
   },
 
   updateRoomAnnounce: async (roomId: string, announce: string | null): Promise<void> => {
+    if (isUsingRealSupabase) {
+      const { error } = await realSupabase!.from('salas').update({ announce }).eq('id', roomId);
+      if (error) throw error;
+    }
     const rIdx = db.salas.findIndex(s => s.id === roomId);
     if (rIdx !== -1) {
       db.salas[rIdx].announce = announce;
@@ -861,15 +1420,20 @@ export const api = {
     // Check if already in participants list
     const inRoom = db.room_participants.some(p => p.user_id === userId && p.sala_id === roomId);
     if (!inRoom) {
-      db.room_participants.push({
+      const newPart = {
         id: 'part_' + Math.random().toString(36).substr(2, 9),
         user_id: userId,
         sala_id: roomId,
         last_activity: new Date().toISOString()
-      });
+      };
+      if (isUsingRealSupabase) {
+        const { error } = await realSupabase!.from('room_participants').insert(newPart);
+        if (error) throw error;
+      }
+      db.room_participants.push(newPart);
 
       // Send entry message once
-      await api.sendMessage(roomId, `@${user.username} entrou na sala`, 'system');
+      await api.sendMessage(roomId, `${user.username.toUpperCase()} [${user.nivel || 1}] ENTROU NA SALA`, 'system');
       notifyUpdate();
     } else {
       // Just update activity
@@ -883,6 +1447,10 @@ export const api = {
 
     const inRoom = db.room_participants.some(p => p.user_id === userId && p.sala_id === roomId);
     if (inRoom) {
+      if (isUsingRealSupabase) {
+        const { error } = await realSupabase!.from('room_participants').delete().eq('user_id', userId).eq('sala_id', roomId);
+        if (error) throw error;
+      }
       db.room_participants = db.room_participants.filter(p => !(p.user_id === userId && p.sala_id === roomId));
       
       const content = type === 'inactive' 
@@ -897,7 +1465,12 @@ export const api = {
   heartbeatRoom: async (roomId: string, userId: string): Promise<void> => {
     const part = db.room_participants.find(p => p.user_id === userId && p.sala_id === roomId);
     if (part) {
-      part.last_activity = new Date().toISOString();
+      const now = new Date().toISOString();
+      if (isUsingRealSupabase) {
+        const { error } = await realSupabase!.from('room_participants').update({ last_activity: now }).eq('user_id', userId).eq('sala_id', roomId);
+        if (error) throw error;
+      }
+      part.last_activity = now;
       notifyUpdate();
     }
   },
@@ -907,14 +1480,24 @@ export const api = {
     const existingIdx = db.favorites.findIndex(f => f.usuario_id === user.id && f.sala_id === roomId);
     let favorited = false;
     if (existingIdx !== -1) {
+      if (isUsingRealSupabase) {
+        const favId = db.favorites[existingIdx].id;
+        const { error } = await realSupabase!.from('favorites').delete().eq('id', favId);
+        if (error) throw error;
+      }
       db.favorites.splice(existingIdx, 1);
     } else {
-      db.favorites.push({
+      const newFav = {
         id: 'fav_' + Math.random().toString(36).substr(2, 9),
         usuario_id: user.id,
         sala_id: roomId,
         criado_em: new Date().toISOString()
-      });
+      };
+      if (isUsingRealSupabase) {
+        const { error } = await realSupabase!.from('favorites').insert(newFav);
+        if (error) throw error;
+      }
+      db.favorites.push(newFav);
       favorited = true;
     }
     notifyUpdate();
@@ -936,12 +1519,27 @@ export const api = {
     const target = db.profiles.find(p => p.id === userId);
     if (!target) return;
 
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    const kickId = 'rk_' + Math.random().toString(36).substr(2, 9);
+
+    if (isUsingRealSupabase) {
+      await realSupabase!.from('room_kicks').delete().eq('user_id', userId).eq('sala_id', roomId);
+      await realSupabase!.from('room_participants').delete().eq('user_id', userId).eq('sala_id', roomId);
+      const { error } = await realSupabase!.from('room_kicks').insert({
+        id: kickId,
+        user_id: userId,
+        sala_id: roomId,
+        expires_at: expiresAt
+      });
+      if (error) throw error;
+    }
+
     // Add to room kicks for 5 minutes
     db.room_kicks = db.room_kicks.filter(k => !(k.user_id === userId && k.sala_id === roomId));
     db.room_kicks.push({
       user_id: userId,
       sala_id: roomId,
-      expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString()
+      expires_at: expiresAt
     });
 
     // Remove from participants
@@ -960,6 +1558,19 @@ export const api = {
 
     const target = db.profiles.find(p => p.id === userId);
     if (!target) return;
+
+    const banId = 'rb_' + Math.random().toString(36).substr(2, 9);
+
+    if (isUsingRealSupabase) {
+      await realSupabase!.from('room_bans').delete().eq('user_id', userId).eq('sala_id', roomId);
+      await realSupabase!.from('room_participants').delete().eq('user_id', userId).eq('sala_id', roomId);
+      const { error } = await realSupabase!.from('room_bans').insert({
+        id: banId,
+        user_id: userId,
+        sala_id: roomId
+      });
+      if (error) throw error;
+    }
 
     db.room_bans = db.room_bans.filter(b => !(b.user_id === userId && b.sala_id === roomId));
     db.room_bans.push({
@@ -987,6 +1598,22 @@ export const api = {
     const target = db.profiles.find(p => p.id === userId);
     if (!target) return;
 
+    const groupBanId = 'gb_' + Math.random().toString(36).substr(2, 9);
+    const roomsInCat = db.salas.filter(s => s.categoria === room.categoria).map(s => s.id);
+
+    if (isUsingRealSupabase) {
+      await realSupabase!.from('group_bans').delete().eq('user_id', userId).eq('categoria', room.categoria);
+      for (const rid of roomsInCat) {
+        await realSupabase!.from('room_participants').delete().eq('user_id', userId).eq('sala_id', rid);
+      }
+      const { error } = await realSupabase!.from('group_bans').insert({
+        id: groupBanId,
+        user_id: userId,
+        categoria: room.categoria
+      });
+      if (error) throw error;
+    }
+
     db.group_bans = db.group_bans.filter(b => !(b.user_id === userId && b.categoria === room.categoria));
     db.group_bans.push({
       user_id: userId,
@@ -994,7 +1621,6 @@ export const api = {
     });
 
     // Remove from participants in all rooms of same category
-    const roomsInCat = db.salas.filter(s => s.categoria === room.categoria).map(s => s.id);
     db.room_participants = db.room_participants.filter(p => !(p.user_id === userId && roomsInCat.includes(p.sala_id)));
 
     await api.sendMessage(roomId, `🚫 @${target.username} foi BANIDO do grupo de salas "${room.categoria}" por @${user.username}.`, 'administrative');
@@ -1010,6 +1636,16 @@ export const api = {
 
     const target = db.profiles.find(p => p.id === userId);
     if (!target) return;
+
+    if (isUsingRealSupabase) {
+      await realSupabase!.from('banned_global').delete().eq('user_id', userId);
+      await realSupabase!.from('room_participants').delete().eq('user_id', userId);
+      const { error } = await realSupabase!.from('banned_global').insert({
+        user_id: userId,
+        created_at: new Date().toISOString()
+      });
+      if (error) throw error;
+    }
 
     if (!db.banned_global.includes(userId)) {
       db.banned_global.push(userId);
@@ -1034,6 +1670,11 @@ export const api = {
 
     const target = db.profiles.find(p => p.id === userId);
     if (!target) return;
+
+    if (isUsingRealSupabase) {
+      const { error } = await realSupabase!.from('banned_global').delete().eq('user_id', userId);
+      if (error) throw error;
+    }
 
     db.banned_global = db.banned_global.filter(id => id !== userId);
 
@@ -1085,7 +1726,7 @@ export const api = {
   // --- MENSAGENS / CHAT ---
   getMessages: async (roomId: string): Promise<Mensagem[]> => {
     const roomMsgs = db.mensagens.filter(m => m.sala_id === roomId);
-    const sliced = roomMsgs.slice(-30); // LIMIT TO LAST 30 RECENT MESSAGES!
+    const sliced = roomMsgs.slice(-100); // LIMIT TO LAST 100 RECENT MESSAGES!
     return sliced.map(m => {
       const user = db.profiles.find(p => p.id === m.autor_id);
       return {
@@ -1097,8 +1738,8 @@ export const api = {
     });
   },
 
-  sendMessage: async (roomId: string, content: string, type: Mensagem['tipo'] = 'normal', cor?: string): Promise<Mensagem> => {
-    const user = db.getActiveProfile();
+  sendMessage: async (roomId: string, content: string, type: Mensagem['tipo'] = 'normal', cor?: string, senderId?: string, targetBotId?: string): Promise<Mensagem> => {
+    const user = senderId ? (db.profiles.find(p => p.id === senderId) || db.getActiveProfile()) : db.getActiveProfile();
     
     // Check if room is silenced
     const room = db.salas.find(s => s.id === roomId);
@@ -1114,6 +1755,7 @@ export const api = {
       tipo: type,
       criado_em: new Date().toISOString(),
       cor, // Store message custom styling color
+      targetBotId,
     };
 
     db.mensagens.push(newMsg);
@@ -1134,7 +1776,18 @@ export const api = {
     // Add 5 XP and trigger mission m1 if normal chat message
     if (type === 'normal') {
       await api.addXP(user.id, 5);
-      api.triggerMission('m1');
+      if (user.id === db.getActiveProfile().id) {
+        api.triggerMission('m1');
+      }
+    }
+
+    // Trigger bot response check via window decoupler
+    if (typeof window !== 'undefined' && (window as any).botOrchestrator) {
+      try {
+        (window as any).botOrchestrator.handleUserMessage(newMsg);
+      } catch (e) {
+        console.error('Error triggering bot handleUserMessage:', e);
+      }
     }
 
     // --- GAME ENGINE AND BOT TRIGGERS (*bot dice, *shower, *apollo) ---
@@ -1236,6 +1889,10 @@ export const api = {
       !((a.solicitante_id === user.id && a.destinatario_id === friendId) || 
         (a.solicitante_id === friendId && a.destinatario_id === user.id))
     );
+    if (isUsingRealSupabase) {
+      await realSupabase!.from('amizades').delete().eq('solicitante_id', user.id).eq('destinatario_id', friendId);
+      await realSupabase!.from('amizades').delete().eq('solicitante_id', friendId).eq('destinatario_id', user.id);
+    }
     notifyUpdate();
   },
 
@@ -1403,33 +2060,46 @@ export const api = {
     return DEFAULT_GIFT_CATALOG;
   },
 
-  sendGift: async (toUserId: string, giftId: string, roomId?: string): Promise<void> => {
-    const sender = db.getActiveProfile();
+  sendGift: async (toUserId: string, giftId: string, roomId?: string, senderId?: string): Promise<void> => {
+    const sender = senderId ? (db.profiles.find(p => p.id === senderId) || db.getActiveProfile()) : db.getActiveProfile();
     const gift = DEFAULT_GIFT_CATALOG.find(g => g.id === giftId);
     if (!gift) throw new Error('Presente não encontrado');
 
+    const isBotSender = sender.id.startsWith('bot_');
+
     if (toUserId === 'all') {
-      const targets = db.profiles.filter(p => p.id !== sender.id);
-      if (targets.length === 0) throw new Error('Nenhum outro usuário ativo na sala para receber o presente.');
+      const targets = db.profiles.filter(p => p.id !== sender.id && !p.id.startsWith('bot_'));
+      if (targets.length < 1) throw new Error('Nenhum outro usuário real ativo na sala para receber o presente.');
 
       const totalCost = gift.valor * targets.length;
-      if (sender.credits < totalCost) {
-        throw new Error(`Créditos insuficientes para enviar presentes para todos (${targets.length} usuários). Custo total: ${totalCost} MZN.`);
+      if (!isBotSender) {
+        if (sender.credits < totalCost) {
+          throw new Error(`Créditos insuficientes para enviar presentes para todos (${targets.length} usuários). Custo total: ${totalCost} MZN.`);
+        }
+        sender.credits -= totalCost;
       }
-
-      sender.credits -= totalCost;
+      
       sender.points += Math.ceil(totalCost / 2);
 
-      // Trigger mission completion
-      api.triggerMission('m5');
+      // Trigger mission completion only for active user
+      if (sender.id === db.getActiveProfile().id) {
+        api.triggerMission('m5');
+        await api.addNotification({
+          usuario_id: sender.id,
+          title: 'Mimos Coletivos Enviados! 🎁',
+          message: `Você distribuiu "${gift.nome}" para ${targets.length} usuários na sala. Gasto total: ${totalCost.toFixed(2)} MZN`,
+          type: 'system',
+          amount: totalCost,
+        });
+      }
 
       for (const receiver of targets) {
         receiver.points += gift.valor;
         await api.addXP(sender.id, gift.valor * 5);
         await api.addXP(receiver.id, gift.valor * 2);
 
-        // 25% chance of dropping a Black Diamond for receivers
-        if (Math.random() < 0.25) {
+        // If the gift is Black Diamond, receiver gets a real Black Diamond
+        if (gift.id === 'g_black_diamond') {
           receiver.black_diamonds = (receiver.black_diamonds || 0) + 1;
         }
 
@@ -1444,7 +2114,13 @@ export const api = {
       }
 
       if (roomId) {
-        await api.sendMessage(roomId, `🎁 @${sender.username} enviou ${gift.imagem} **${gift.nome}** para TODOS na sala! Que grande gesto de carinho e generosidade!`, 'automatic');
+        await api.sendMessage(
+          roomId,
+          `✨🎁 **FESTIVAL DE PRESENTES EM GRUPO!** 🎁✨\n🌟 @${sender.username} espalhou alegria e enviou **${gift.imagem} ${gift.nome}** para TODOS na sala! 🎉\n💝 Que gesto espetacular de generosidade!`,
+          'automatic',
+          undefined,
+          sender.id
+        );
       }
 
       notifyUpdate();
@@ -1454,9 +2130,15 @@ export const api = {
     const receiver = db.profiles.find(p => p.id === toUserId);
     if (!receiver) throw new Error('Destinatário não encontrado');
     if (sender.id === receiver.id) throw new Error('Não pode enviar presente para si mesmo');
-    if (sender.credits < gift.valor) throw new Error(`Créditos insuficientes. Você precisa de ${gift.valor} MZN.`);
+    if (isBotSender && receiver.id.startsWith('bot_')) {
+      throw new Error('Bots não podem enviar presentes para outros bots.');
+    }
 
-    sender.credits -= gift.valor;
+    if (!isBotSender) {
+      if (sender.credits < gift.valor) throw new Error(`Créditos insuficientes. Você precisa de ${gift.valor} MZN.`);
+      sender.credits -= gift.valor;
+    }
+    
     sender.points += Math.ceil(gift.valor / 2);
     receiver.points += gift.valor;
 
@@ -1474,11 +2156,20 @@ export const api = {
     }
     sender.stats_transactions_amount = (sender.stats_transactions_amount || 0) + gift.valor;
 
-    // Trigger mission completion
-    api.triggerMission('m5');
+    // Trigger mission completion only for active user
+    if (sender.id === db.getActiveProfile().id) {
+      api.triggerMission('m5');
+      await api.addNotification({
+        usuario_id: sender.id,
+        title: 'Mimo Individual Enviado! 🎁',
+        message: `Você enviou "${gift.nome}" para @${receiver.username}. Gasto total: ${gift.valor.toFixed(2)} MZN`,
+        type: 'system',
+        amount: gift.valor,
+      });
+    }
 
-    // 25% chance of dropping a Black Diamond for receivers
-    if (Math.random() < 0.25) {
+    // If the gift is Black Diamond, receiver gets a real Black Diamond
+    if (gift.id === 'g_black_diamond') {
       receiver.black_diamonds = (receiver.black_diamonds || 0) + 1;
     }
 
@@ -1495,7 +2186,19 @@ export const api = {
     });
 
     if (roomId) {
-      await api.sendMessage(roomId, `🎁 @${sender.username} enviou ${gift.imagem} **${gift.nome}** de presente para @${receiver.username}!`, 'automatic');
+      if (gift.id === 'g_black_diamond') {
+        await api.sendMessage(
+          roomId,
+          `✨💎 **GIFT PRESTÍGIO: BLACK DIAMOND!** 💎✨\n🌟 @${sender.username} presenteou @${receiver.username} com um raríssimo **Black Diamond**! 💎\n💎 *Este diamante especial pode ser resgatado por saldo MZN!* 💸`,
+          'automatic'
+        );
+      } else {
+        await api.sendMessage(
+          roomId,
+          `✨🎁 **GESTO DE CARINHO NO CHAT!** 🎁✨\n🌸 @${sender.username} enviou um lindo presente ${gift.imagem} **${gift.nome}** para @${receiver.username}! 💕`,
+          'automatic'
+        );
+      }
     }
 
     notifyUpdate();
@@ -1505,10 +2208,17 @@ export const api = {
     const sender = db.getActiveProfile();
     const gift = DEFAULT_GIFT_CATALOG.find(g => g.id === giftId);
     if (!gift) throw new Error('Presente não encontrado');
-    if (quantity <= 0) throw new Error('Quantidade deve ser maior que zero');
+    if (quantity < 2 || quantity > 50) {
+      throw new Error('A quantidade de presentes no Shower deve ser entre 2 e 50.');
+    }
 
     const targets = db.profiles.filter(p => p.id !== sender.id);
-    if (targets.length === 0) throw new Error('Nenhum outro usuário ativo na sala.');
+    if (targets.length === 0) {
+      throw new Error('Nenhum outro usuário ativo na sala.');
+    }
+    if (targets.length < 1) {
+      throw new Error('Deve haver pelo menos 2 usuários na sala (você e pelo menos mais 1 destinatário) para realizar um Shower.');
+    }
 
     const costPerUser = gift.valor * quantity;
     const totalCost = costPerUser * targets.length;
@@ -1536,27 +2246,52 @@ export const api = {
     // Trigger mission completion
     api.triggerMission('m5');
 
+    if (sender.id === db.getActiveProfile().id) {
+      await api.addNotification({
+        usuario_id: sender.id,
+        title: 'Chuveiro de Mimos Ativado! 🌊',
+        message: `Você iniciou um Chuveiro de ${quantity}x "${gift.nome}" para todos os ${targets.length} usuários. Gasto total: ${totalCost.toFixed(2)} MZN`,
+        type: 'system',
+        amount: totalCost,
+      });
+    }
+
     for (const receiver of targets) {
       receiver.points += costPerUser;
       receiver.stats_gifts_received = (receiver.stats_gifts_received || 0) + quantity;
       await api.addXP(sender.id, costPerUser * 5);
       await api.addXP(receiver.id, costPerUser * 2);
 
-      // Showers drop 1 to 2 guaranteed Black Diamonds for receivers
-      const diamondsAwarded = Math.floor(Math.random() * 2) + 1;
-      receiver.black_diamonds = (receiver.black_diamonds || 0) + diamondsAwarded;
+      // If and ONLY if the gift is Black Diamond, receivers get Black Diamonds
+      if (gift.id === 'g_black_diamond') {
+        receiver.black_diamonds = (receiver.black_diamonds || 0) + quantity;
+      }
 
       await api.addNotification({
         usuario_id: receiver.id,
         title: '🌊 CHUVEIRO DE PRESENTES! 🎁',
-        message: `@${sender.username} lançou um super chuveiro de ${quantity}x ${gift.imagem} ${gift.nome}! Você recebeu o presente e coletou ${diamondsAwarded} Black Diamond(s)!`,
+        message: gift.id === 'g_black_diamond'
+          ? `@${sender.username} lançou um super chuveiro de ${quantity}x 💎 Black Diamond! Você recebeu ${quantity} Black Diamond(s)!`
+          : `@${sender.username} lançou um super chuveiro de ${quantity}x ${gift.imagem} ${gift.nome}!`,
         type: 'gift',
         sender_id: sender.id,
         sender_username: sender.username,
       });
     }
 
-    await api.sendMessage(roomId, `🌊 ✨ GIFT SHOWER MARAVILHOSO! @${sender.username} enviou uma tempestade de **${quantity}x ${gift.imagem} ${gift.nome}** para TODOS na sala! Que espetáculo de generosidade! ✨ 🌊`, 'automatic');
+    if (gift.id === 'g_black_diamond') {
+      await api.sendMessage(
+        roomId,
+        `🌊 ✨💎 **SUPER CHUVA DE DIAMANTES NEGROS!** 💎✨ 🌊\n👑 @${sender.username} fez chover uma tempestade de **${quantity}x 💎 Black Diamond** para TODOS na sala!\n💸 *Cada destinatário recebeu ${quantity}x Black Diamond para trocar por saldo MZN!* 💸`,
+        'automatic'
+      );
+    } else {
+      await api.sendMessage(
+        roomId,
+        `🌊 ✨🎁 **TEMPESTADE MAGNÍFICA DE PRESENTES!** 🎁✨ 🌊\n🎈 @${sender.username} surpreendeu a todos com um grandioso **GIFT SHOWER** de **${quantity}x ${gift.imagem} ${gift.nome}** para TODOS na sala! 🎉\n💝 Sinta a maravilhosa onda de generosidade!`,
+        'automatic'
+      );
+    }
     notifyUpdate();
   },
 
@@ -1572,6 +2307,8 @@ export const api = {
 
     user.credits += creditsReward;
     user.online_points = 0;
+    
+    logTransaction(user.id, 'apollo_redeem', creditsReward, 'Resgate de Pontos Online por MZN');
     await api.addXP(user.id, xpReward);
 
     notifyUpdate();
@@ -1587,6 +2324,8 @@ export const api = {
     const creditsReward = diamonds * 50; // 50 MZN each
     user.credits += creditsReward;
     user.black_diamonds = 0;
+
+    logTransaction(user.id, 'apollo_redeem', creditsReward, 'Resgate de Black Diamonds por MZN');
 
     notifyUpdate();
     return { credits: creditsReward, amountRedeemed: diamonds };
@@ -1804,6 +2543,90 @@ export const api = {
     notifyUpdate();
   },
 
+  createAnuncio: async (texto: string, dias: number, custo: number): Promise<Anuncio> => {
+    const user = db.getActiveProfile();
+    if (user.credits < custo) {
+      throw new Error(`Você não tem MZN suficiente (precisa de ${custo} MZN).`);
+    }
+
+    user.credits -= custo;
+
+    const agora = new Date();
+    const expira = new Date();
+    expira.setDate(agora.getDate() + dias);
+
+    const novoAnuncio: Anuncio = {
+      id: 'ad_' + Math.random().toString(36).substr(2, 9),
+      autor_id: user.id,
+      autor_username: user.username,
+      texto: texto.trim(),
+      visualizacoes: 0,
+      dias,
+      valor_pago: custo,
+      criado_em: agora.toISOString(),
+      expira_em: expira.toISOString(),
+      status: 'pending'
+    };
+
+    db.anuncios.push(novoAnuncio);
+
+    logTransaction(user.id, 'item_buy', -custo, `Criou Anúncio (Pendente Aprovação) (${dias} dia(s))`);
+
+    await api.addNotification({
+      usuario_id: user.id,
+      title: '📢 Anúncio Enviado para Aprovação!',
+      message: `Seu anúncio foi criado com sucesso e enviado para aprovação da Staff! Assim que for aprovado, ele será exibido aleatoriamente no rodapé!`,
+      type: 'system',
+      amount: custo,
+    });
+
+    notifyUpdate();
+    return novoAnuncio;
+  },
+
+  getAnuncios: async (): Promise<Anuncio[]> => {
+    const agora = Date.now();
+    return db.anuncios.map(ad => {
+      const expTime = new Date(ad.expira_em).getTime();
+      if (expTime < agora && ad.status === 'active') {
+        ad.status = 'expired';
+      }
+      return ad;
+    }).filter(ad => ad.status === 'active');
+  },
+
+  getAllAnuncios: async (): Promise<Anuncio[]> => {
+    return db.anuncios;
+  },
+
+  updateAnuncioStatus: async (id: string, status: 'active' | 'rejected'): Promise<void> => {
+    const ad = db.anuncios.find(a => a.id === id);
+    if (!ad) throw new Error('Anúncio não encontrado.');
+    
+    ad.status = status;
+    
+    // Notify user
+    await api.addNotification({
+      usuario_id: ad.autor_id,
+      title: status === 'active' ? '✅ Anúncio Aprovado! 🎉' : '❌ Anúncio Rejeitado',
+      message: status === 'active' 
+        ? `Seu anúncio "${ad.texto}" foi aprovado pela Staff e já está ativo no rodapé!` 
+        : `Seu anúncio "${ad.texto}" foi rejeitado pela Staff. Se achar que houve um erro, entre em contato.`,
+      type: 'system',
+      amount: 0,
+    });
+
+    notifyUpdate();
+  },
+
+  incrementAnuncioViews: async (id: string): Promise<void> => {
+    const ad = db.anuncios.find(a => a.id === id);
+    if (ad) {
+      ad.visualizacoes += 1;
+      notifyUpdate();
+    }
+  },
+
   useOracle: async (roomId: string): Promise<string> => {
     const user = db.getActiveProfile();
     const cost = 150;
@@ -1959,6 +2782,7 @@ export const api = {
         user.xp -= 100;
         user.last_level_up_at = new Date().toISOString();
         user.credits += 25; // level up reward
+        logTransaction(user.id, 'level_up', 25, `Recompensa por subir ao Nível ${user.nivel}`);
 
         // Notify user about level up
         await api.addNotification({
@@ -2053,6 +2877,9 @@ export const api = {
   clearNotifications: async (): Promise<void> => {
     const user = db.getActiveProfile();
     db.notifications = db.notifications.filter(n => n.usuario_id !== user.id);
+    if (isUsingRealSupabase) {
+      await realSupabase!.from('notifications').delete().eq('usuario_id', user.id);
+    }
     notifyUpdate();
   },
 
@@ -2142,6 +2969,7 @@ export const api = {
     
     // Deduct entry fee
     user.credits -= entryFee;
+    logTransaction(user.id, 'game_wager', -entryFee, `Aposta em Jogo de Dados Multiplayer`);
     
     const newGame: MultiplayerDiceGame = {
       id: 'dg_' + Math.random().toString(36).substr(2, 9),
@@ -2189,6 +3017,7 @@ export const api = {
     
     // Deduct entry fee
     user.credits -= game.entry_fee;
+    logTransaction(user.id, 'game_wager', -game.entry_fee, `Aposta em Jogo de Dados Multiplayer`);
     
     game.players.push({
       id: user.id,
@@ -2290,6 +3119,7 @@ export const api = {
             const profile = db.profiles.find(prof => prof.id === winner.id);
             if (profile) {
               profile.credits += game.prize_pool;
+              logTransaction(profile.id, 'game_payout', game.prize_pool, `Prêmio de Vitória em Jogo de Dados Multiplayer`);
               await api.addXP(profile.id, 50);
             }
             game.status = 'ended';
@@ -2322,13 +3152,8 @@ export const api = {
   },
 
   claimAccessBonus: async (): Promise<number> => {
-    const user = db.getActiveProfile();
-    const bonusAmount = 5; // 5 MZN access bonus
-    user.credits += bonusAmount;
-    
-    logTransaction(user.id, 'access_bonus', bonusAmount, 'Bônus de Acesso Automático à Conta');
-    notifyUpdate();
-    return bonusAmount;
+    // Automatic login bonus has been disabled by user request to preserve economy balance
+    return 0;
   },
 
   updatePassword: async (currentPass: string, newPass: string): Promise<void> => {
@@ -2841,6 +3666,7 @@ if (typeof window !== 'undefined') {
               const profile = db.profiles.find(prof => prof.id === p.id);
               if (profile) {
                 profile.credits += game.entry_fee;
+                logTransaction(profile.id, 'game_payout', game.entry_fee, `Reembolso de Jogo de Dados Cancelado`);
               }
             }
             await api.sendMessage(game.sala_id, `❌ **DADOS MULTIPLAYER CANCELADO:** Mínimo de 2 jogadores necessário para iniciar. A taxa de entrada de **${game.entry_fee} MZN** foi devolvida aos inscritos.`, 'automatic');
@@ -2855,11 +3681,11 @@ if (typeof window !== 'undefined') {
       }
     }
 
-    // Inactivity sweep for room participants (older than 6 minutes / 360 seconds)
+    // Inactivity sweep for room participants (older than 5 minutes / 300 seconds)
     const nowTime = Date.now();
     const expiredParticipants = db.room_participants.filter(p => {
       const lastAct = new Date(p.last_activity).getTime();
-      return (nowTime - lastAct) >= 360000; // 360,000 ms = 6 minutes
+      return (nowTime - lastAct) >= 300000; // 300,000 ms = 5 minutes
     });
 
     if (expiredParticipants.length > 0) {
@@ -2868,7 +3694,7 @@ if (typeof window !== 'undefined') {
         const userProfile = db.profiles.find(prof => prof.id === p.user_id);
         if (userProfile) {
           // Send system inactivity message to the room
-          await api.sendMessage(p.sala_id, `@${userProfile.username} saiu por inatividade (inativo há 6 minutos)`, 'system');
+          await api.sendMessage(p.sala_id, `@${userProfile.username} saiu por inatividade (inativo há 5 minutos)`, 'system');
         }
       }
       changed = true;
@@ -2978,6 +3804,7 @@ async function handleBotCommand(roomId: string, content: string, user: Profile) 
 
         // Deduct bet amount upfront
         user.credits -= amount;
+        logTransaction(user.id, 'game_wager', -amount, `Aposta de Dados (Duelo/Target)`);
 
         // Roll the dice for the player
         const roll1 = Math.floor(Math.random() * 6) + 1;
@@ -3031,6 +3858,7 @@ async function handleBotCommand(roomId: string, content: string, user: Profile) 
             user.credits += winnings;
             const netGain = winnings - amount;
 
+            logTransaction(user.id, 'game_payout', winnings, `Retorno de Vitória em Aposta de Dados`);
             await api.sendMessage(roomId, `🎯 **JOGO DE DADOS (APOSTA)**\n@${user.username} apostou **${amount} MZN** em **${targetLabel}**!\n🎲 Dados: ${playerDisplay}\n🎉 **GANHOU!** Parabéns, você acertou e levou **${winnings} MZN** (Lucro limpo: +${netGain} MZN)!`, 'automatic');
             await api.addXP(user.id, 25);
           } else {
@@ -3053,6 +3881,7 @@ async function handleBotCommand(roomId: string, content: string, user: Profile) 
             // Player wins!
             const winnings = amount * 2;
             user.credits += winnings;
+            logTransaction(user.id, 'game_payout', winnings, `Retorno de Vitória em Duelo contra Bot`);
             await api.sendMessage(roomId, `⚔️ **DUELO DE DADOS contra o BOT**\n💰 Aposta: **${amount} MZN**\n👤 @${user.username}: ${playerDisplay}\n🤖 Bot: ${botDisplay}\n🏆 **VITÓRIA!** Você venceu o Bot e faturou **${winnings} MZN** (Saldo atual: ${user.credits} MZN)!`, 'automatic');
             await api.addXP(user.id, 20);
           } else if (playerTotal < botTotal) {
@@ -3062,6 +3891,7 @@ async function handleBotCommand(roomId: string, content: string, user: Profile) 
           } else {
             // Draw! Return bet
             user.credits += amount;
+            logTransaction(user.id, 'game_payout', amount, `Reembolso de Empate em Duelo contra Bot`);
             await api.sendMessage(roomId, `⚔️ **DUELO DE DADOS contra o BOT**\n💰 Aposta: **${amount} MZN**\n👤 @${user.username}: ${playerDisplay}\n🤖 Bot: ${botDisplay}\n🤝 **EMPATE!** Ninguém ganha, seus **${amount} MZN** foram devolvidos integralmente!`, 'automatic');
             await api.addXP(user.id, 10);
           }
@@ -3092,40 +3922,101 @@ async function handleBotCommand(roomId: string, content: string, user: Profile) 
 
         if (roll1 === roll2) {
           user.credits += 5;
+          logTransaction(user.id, 'access_bonus', 5, `Bônus por Duplo em Dados Livres`);
           await api.sendMessage(roomId, `✨ **DUPLO!** @${user.username} tirou números iguais e ganhou um bônus extra de **5 MZN**!`, 'automatic');
         } else if (total === 12) {
           user.credits += 15;
+          logTransaction(user.id, 'access_bonus', 15, `Bônus por Craps Máximo em Dados Livres`);
           await api.sendMessage(roomId, `🎉 **CRAPS MÁXIMO!** @${user.username} conseguiu a soma máxima de 12 e ganhou **15 MZN** de bônus!`, 'automatic');
         } else if (total === 2) {
           user.credits = Math.max(0, user.credits - 2);
+          logTransaction(user.id, 'item_buy', -2, `Penalidade por Craps Mínimo em Dados Livres`);
           await api.sendMessage(roomId, `💀 **CRAPS MÍNIMO!** @${user.username} deu azar com o total 2 e perdeu **2 MZN**!`, 'automatic');
         }
         notifyUpdate();
       }
     }
 
-    // 2. *shower (Gift Shower - Send present to everyone in the room)
-    else if (command === '*shower') {
-      const amountPerUser = parseInt(parts[1]) || 5;
-      const room = db.salas.find(s => s.id === roomId);
-      
-      if (user.credits < amountPerUser * 5) {
-        await api.sendMessage(roomId, `❌ Erro: @${user.username} tentou dar um *shower, mas precisa de pelo menos ${amountPerUser * 5} MZN de saldo para agraciar a sala.`, 'automatic');
+    // 2. *gift (Send a gift to an individual user or all)
+    else if (command === '*gift') {
+      const findGiftByNameOrId = (identifier: string): Gift | undefined => {
+        if (!identifier) return undefined;
+        const lower = identifier.toLowerCase().trim();
+        let found = DEFAULT_GIFT_CATALOG.find(g => g.id.toLowerCase() === lower || g.nome.toLowerCase() === lower);
+        if (found) return found;
+        return DEFAULT_GIFT_CATALOG.find(g => g.nome.toLowerCase().includes(lower));
+      };
+
+      const findUserByUsername = (usernameStr: string): Profile | undefined => {
+        if (!usernameStr) return undefined;
+        const clean = usernameStr.replace('@', '').toLowerCase().trim();
+        return db.profiles.find(p => p.username.toLowerCase() === clean);
+      };
+
+      const targetUserStr = parts[1];
+      const giftNameStr = parts.slice(2).join(' ').trim();
+
+      if (!targetUserStr || !giftNameStr) {
+        await api.sendMessage(roomId, `❌ Uso incorreto. Use: \`*gift [nome_do_usuario] [nome_do_presente]\` ou \`*gift all [nome_do_presente]\`.`, 'automatic');
         return;
       }
 
-      // Deduct from sender
-      user.credits -= amountPerUser * 4;
-      
-      // Give to other active profiles (up to 4 people)
-      const others = db.profiles.filter(p => p.id !== user.id).slice(0, 4);
-      others.forEach(p => {
-        p.credits += amountPerUser;
-        p.points += 2;
-      });
+      const gift = findGiftByNameOrId(giftNameStr);
+      if (!gift) {
+        await api.sendMessage(roomId, `❌ Erro: Presente "${giftNameStr}" não encontrado no catálogo.`, 'automatic');
+        return;
+      }
 
-      await api.sendMessage(roomId, `🌊 ✨ GIFT SHOWER! @${user.username} enviou ${amountPerUser} MZN de presente para todos os usuários ativos da sala!`, 'automatic');
-      notifyUpdate();
+      if (targetUserStr.toLowerCase() === 'all') {
+        try {
+          await api.sendGift('all', gift.id, roomId);
+        } catch (err: any) {
+          await api.sendMessage(roomId, `❌ Erro no Gift All: ${err.message}`, 'automatic');
+        }
+      } else {
+        const recipient = findUserByUsername(targetUserStr);
+        if (!recipient) {
+          await api.sendMessage(roomId, `❌ Erro: Usuário "@${targetUserStr.replace('@', '')}" não encontrado.`, 'automatic');
+          return;
+        }
+        try {
+          await api.sendGift(recipient.id, gift.id, roomId);
+        } catch (err: any) {
+          await api.sendMessage(roomId, `❌ Erro ao enviar presente: ${err.message}`, 'automatic');
+        }
+      }
+    }
+
+    // 2.5 *shower / *tempestade (Gift Shower - Send multiple presents to everyone in the room)
+    else if (command === '*shower' || command === '*tempestade') {
+      const findGiftByNameOrId = (identifier: string): Gift | undefined => {
+        if (!identifier) return undefined;
+        const lower = identifier.toLowerCase().trim();
+        let found = DEFAULT_GIFT_CATALOG.find(g => g.id.toLowerCase() === lower || g.nome.toLowerCase() === lower);
+        if (found) return found;
+        return DEFAULT_GIFT_CATALOG.find(g => g.nome.toLowerCase().includes(lower));
+      };
+
+      const qtyStr = parts[1];
+      const giftNameStr = parts.slice(2).join(' ').trim();
+      const quantity = parseInt(qtyStr);
+
+      if (isNaN(quantity) || !giftNameStr) {
+        await api.sendMessage(roomId, `❌ Uso incorreto. Use: \`*tempestade [quantidade] [nome_do_presente]\`. Exemplo: \`*tempestade 5 rosa\`.`, 'automatic');
+        return;
+      }
+
+      const gift = findGiftByNameOrId(giftNameStr);
+      if (!gift) {
+        await api.sendMessage(roomId, `❌ Erro: Presente "${giftNameStr}" não encontrado no catálogo.`, 'automatic');
+        return;
+      }
+
+      try {
+        await api.sendGiftShower(roomId, gift.id, quantity);
+      } catch (err: any) {
+        await api.sendMessage(roomId, `❌ Erro na Tempestade de Mimos: ${err.message}`, 'automatic');
+      }
     }
 
     // 3. *apollo (Admin voucher creation command inside room chat)

@@ -10,7 +10,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   MessageSquare, Send, Users, Shield, Sparkles, Smile, Trash2, 
   Heart, VolumeX, Volume2, Award, Zap, HelpCircle, Gift, AlertCircle, Coins, Dices,
-  Lock, Unlock, RefreshCw, Crown, ShieldAlert
+  Lock, Unlock, RefreshCw, Crown, ShieldAlert, Settings, LogOut
 } from 'lucide-react';
 import { UserBadgesInline } from './BadgesSection';
 
@@ -126,6 +126,16 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
   const [showRoomOptions, setShowRoomOptions] = useState(false);
   const [announceInput, setAnnounceInput] = useState('');
   const [emojiKeyboardTab, setEmojiKeyboardTab] = useState<'standard' | 'exclusive' | 'stickers'>('standard');
+  const [mobileSection, setMobileSection] = useState<'rooms' | 'chat'>('rooms');
+
+  // Gift popover states
+  const [showGiftPanel, setShowGiftPanel] = useState(false);
+  const [giftTargetId, setGiftTargetId] = useState<string>('');
+  const [selectedGiftId, setSelectedGiftId] = useState<string>('');
+  const [giftStatus, setGiftStatus] = useState<{ success?: string; error?: string } | null>(null);
+  const [isSendingGift, setIsSendingGift] = useState(false);
+  const [giftPanelMode, setGiftPanelMode] = useState<'individual' | 'all' | 'shower'>('individual');
+  const [giftShowerQty, setGiftShowerQty] = useState<number>(5);
 
   // Room Creator Form
   const [newRoomName, setNewRoomName] = useState('');
@@ -133,6 +143,10 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
   const [newRoomCat, setNewRoomCat] = useState('Official Rooms');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messageContainerRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const shouldScrollToBottomRef = useRef(true);
+  const [visibleCount, setVisibleCount] = useState(15);
   const currentUser = db.getActiveProfile();
 
   const getRoomUsers = () => {
@@ -174,9 +188,10 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
       return seedParticipants;
     }
 
-    // Filter room users by: friends or official users as requested
+    // Filter room users by: friends or official users as requested (with bots always allowed)
     return profilesInRoom.filter(u => {
       if (u.id === currentUser.id) return true;
+      if (u.id.startsWith('bot_')) return true; // Keep all bots!
       const isFriend = db.amizades.some(a => 
         a.status === 'aceito' && 
         ((a.solicitante_id === currentUser.id && a.destinatario_id === u.id) || 
@@ -202,6 +217,21 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
 
     return () => unsubscribe();
   }, [currentUser?.id]);
+
+  // Deep-linking / Redirecting room selector from other components (Marketplace / Profiles)
+  useEffect(() => {
+    const targetRoomId = localStorage.getItem('fcfunz_active_room_id');
+    if (targetRoomId) {
+      const room = db.salas.find(s => s.id === targetRoomId);
+      if (room) {
+        // Automatically enter this room
+        setActiveRoom(room);
+        setMobileSection('chat');
+        // Clean up immediately so subsequent regular chat entries start fresh
+        localStorage.removeItem('fcfunz_active_room_id');
+      }
+    }
+  }, [rooms]);
 
   // Sync Active Dice Game
   useEffect(() => {
@@ -237,10 +267,10 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
 
     const interval = setInterval(() => {
       const inactiveSecs = Math.floor((Date.now() - lastActivityRef.current) / 1000);
-      if (inactiveSecs >= 360) { // 6 minutes (360 seconds)
+      if (inactiveSecs >= 300) { // 5 minutes (300 seconds)
         api.leaveRoom(activeRoom.id, currentUser.id, 'inactive').then(() => {
           setActiveRoom(null);
-          setAccessError('Sua sessão nesta sala expirou devido a inatividade (inativo há 6 minutos).');
+          setAccessError('Sua sessão nesta sala expirou devido a inatividade (inativo há 5 minutos).');
         });
       } else {
         // Automatically renew the user's active status in this room
@@ -273,6 +303,8 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
           prevRoomIdRef.current = currentRoomId;
           // Sync messages
           const msgs = await api.getMessages(currentRoomId);
+          shouldScrollToBottomRef.current = true;
+          setVisibleCount(15);
           setMessages(msgs);
         } catch (err: any) {
           console.error('Access denied:', err.message);
@@ -304,8 +336,9 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
     const unsubscribe = subscribeToChat(activeRoom.id, (newMsg) => {
       setMessages((prev) => {
         if (prev.some(m => m.id === newMsg.id)) return prev;
-        // Limit local message state to 30 most recent messages as requested!
-        return [...prev, newMsg].slice(-30);
+        // Limit local message state to 100 most recent messages so we can paginate back
+        shouldScrollToBottomRef.current = true;
+        return [...prev, newMsg].slice(-100);
       });
     });
 
@@ -314,8 +347,88 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
 
   // Scroll to bottom
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (shouldScrollToBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
+
+  const handleLoadMore = () => {
+    if (!messageContainerRef.current) return;
+    
+    // Save current scroll metrics
+    const container = messageContainerRef.current;
+    const previousScrollHeight = container.scrollHeight;
+    const previousScrollTop = container.scrollTop;
+    
+    shouldScrollToBottomRef.current = false;
+    setVisibleCount(prev => Math.min(prev + 15, messages.length));
+    
+    // After render, restore scroll position relative to the bottom
+    requestAnimationFrame(() => {
+      if (!messageContainerRef.current) return;
+      const newScrollHeight = messageContainerRef.current.scrollHeight;
+      messageContainerRef.current.scrollTop = previousScrollTop + (newScrollHeight - previousScrollHeight);
+    });
+  };
+
+  // Infinite scroll up - Intersection Observer for sentinel
+  useEffect(() => {
+    if (!sentinelRef.current || !messageContainerRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (first.isIntersecting && messages.length > visibleCount) {
+          handleLoadMore();
+        }
+      },
+      {
+        root: messageContainerRef.current,
+        threshold: 0.1,
+      }
+    );
+
+    observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  }, [messages.length, visibleCount]);
+
+  const handleSendInlineGift = async () => {
+    if (!activeRoom || !selectedGiftId) {
+      setGiftStatus({ error: 'Selecione um presente.' });
+      return;
+    }
+
+    if (giftPanelMode === 'individual' && !giftTargetId) {
+      setGiftStatus({ error: 'Selecione um destinatário.' });
+      return;
+    }
+
+    setIsSendingGift(true);
+    setGiftStatus(null);
+
+    try {
+      if (giftPanelMode === 'individual') {
+        await api.sendGift(giftTargetId, selectedGiftId, activeRoom.id, currentUser.id);
+        setGiftStatus({ success: 'Presente enviado com sucesso!' });
+      } else if (giftPanelMode === 'all') {
+        await api.sendGift('all', selectedGiftId, activeRoom.id, currentUser.id);
+        setGiftStatus({ success: 'Presentes enviados para todos!' });
+      } else if (giftPanelMode === 'shower') {
+        await api.sendGiftShower(activeRoom.id, selectedGiftId, giftShowerQty);
+        setGiftStatus({ success: 'Chuveiro de presentes ativado!' });
+      }
+      setSelectedGiftId('');
+      // Show success briefly, then close panel
+      setTimeout(() => {
+        setShowGiftPanel(false);
+        setGiftStatus(null);
+      }, 2000);
+    } catch (err: any) {
+      setGiftStatus({ error: err.message || 'Falha ao enviar presente.' });
+    } finally {
+      setIsSendingGift(false);
+    }
+  };
 
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -474,9 +587,55 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
       setActiveRoom(room);
       setAnnounceInput(room.announce || '');
       setShowRoomOptions(false);
+      setMobileSection('chat');
     } catch (err: any) {
       setAccessError(err.message || 'Erro ao acessar a sala.');
     }
+  };
+
+  const renderRichTextWithUsers = (text: string) => {
+    // Split by newlines to preserve lines nicely
+    const lines = text.split('\n');
+    
+    return (
+      <span className="block whitespace-pre-wrap">
+        {lines.map((line, lineIdx) => {
+          // For each line, parse users and bold markdown
+          const parts = line.split(/(@[a-zA-Z0-9_]+|\*\*.*?\*\*)/g);
+          
+          return (
+            <span key={lineIdx} className="block min-h-[1.1rem]">
+              {parts.map((part, index) => {
+                if (part.startsWith('@')) {
+                  const username = part.slice(1);
+                  const profile = db.profiles.find(p => p.username.toLowerCase() === username.toLowerCase());
+                  if (profile) {
+                    return (
+                      <span
+                        key={index}
+                        onClick={() => onViewProfile(profile.id)}
+                        className={`inline-flex items-center gap-0.5 font-bold cursor-pointer hover:underline mx-0.5 align-middle ${getCargoColorClasses(profile.cargo)}`}
+                      >
+                        @{profile.username}
+                        <UserBadgesInline cargo={profile.cargo} className="ml-0.5 scale-90" />
+                      </span>
+                    );
+                  }
+                } else if (part.startsWith('**') && part.endsWith('**')) {
+                  const inner = part.slice(2, -2);
+                  return (
+                    <strong key={index} className="font-extrabold text-white filter drop-shadow">
+                      {inner}
+                    </strong>
+                  );
+                }
+                return part;
+              })}
+            </span>
+          );
+        })}
+      </span>
+    );
   };
 
   // Cargo colors configuration (Creative and modern with PDF styling rules)
@@ -489,8 +648,9 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
       case 'Mentor':
       case 'Mentor Head':
         return 'text-red-500 font-bold'; // Red as requested by user
-      case 'Merchant':
       case 'Super Merchant':
+        return 'text-pink-400 font-bold'; // Pink as requested by user
+      case 'Merchant':
         return 'text-purple-500 font-bold'; // Purple as requested by user
       case 'Guide':
         return 'text-teal-400 font-medium';
@@ -512,7 +672,10 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
       case 'Global Admin':
         return 'bg-rose-500/15 text-rose-400 border border-rose-500/20';
       case 'Mentor':
+      case 'Mentor Head':
         return 'bg-red-500/15 text-red-400 border border-red-500/20';
+      case 'Super Merchant':
+        return 'bg-pink-500/15 text-pink-400 border border-pink-500/20';
       case 'Merchant':
         return 'bg-purple-500/15 text-purple-400 border border-purple-500/20';
       case 'Guide':
@@ -531,10 +694,10 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
   });
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-10rem)] max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
+    <div className="flex flex-col lg:grid lg:grid-cols-12 gap-0 lg:gap-6 h-[calc(100dvh-112px)] lg:h-[calc(100vh-10rem)] w-full max-w-7xl mx-auto px-0 sm:px-6 lg:px-8 mt-0 lg:mt-4">
       
       {/* 1. ROOMS NAVIGATION BAR (Lg: 3 columns) */}
-      <div className="lg:col-span-3 flex flex-col bg-slate-900/40 border border-slate-800/80 rounded-xl overflow-hidden backdrop-blur-sm h-full">
+      <div className={`lg:col-span-3 flex flex-col bg-slate-900/40 lg:border lg:border-slate-800/80 rounded-none lg:rounded-xl overflow-hidden backdrop-blur-sm h-full ${activeRoom && mobileSection === 'chat' ? 'hidden lg:flex' : 'flex'}`}>
         <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
           <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
             <MessageSquare className="h-4 w-4 text-indigo-400" /> Salas de Chat
@@ -631,98 +794,85 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
       </div>
 
       {/* 2. CHAT FEED & MESSAGE AREA (Lg: 9 columns) */}
-      <div className="lg:col-span-9 flex flex-col bg-slate-900/40 border border-slate-800/80 rounded-xl overflow-hidden backdrop-blur-sm h-full">
+      <div className={`lg:col-span-9 flex flex-col bg-slate-900/40 lg:border lg:border-slate-800/80 rounded-none lg:rounded-xl overflow-hidden backdrop-blur-sm h-full ${!activeRoom || mobileSection === 'rooms' ? 'hidden lg:flex' : 'flex'}`}>
         {activeRoom ? (
           <>
-            {/* Header of Active Room - Highly cleaned visual area as requested */}
-            <div className="p-4 border-b border-slate-800 bg-slate-950/65 flex flex-col md:flex-row md:items-start justify-between gap-3">
-              <div className="flex-1 min-w-0 space-y-1.5">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-sm font-black text-slate-100 flex items-center gap-1.5">
-                    💬 {activeRoom.nome}
-                  </h2>
-                  
-                  {/* Favorites Indicator */}
+            {/* Header of Active Room - Highly cleaned visual area like Telegram PC as requested */}
+            <div className="p-3 border-b border-slate-800 bg-slate-950/80 flex flex-col justify-center h-[58px] shrink-0">
+              <div className="flex items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2 min-w-0">
                   <button
-                    onClick={() => handleFavoriteRoom(activeRoom.id)}
-                    className={`transition ${favorites.includes(activeRoom.id) ? 'text-amber-400 hover:text-amber-500' : 'text-slate-500 hover:text-slate-400'}`}
-                    title={favorites.includes(activeRoom.id) ? "Remover dos favoritos" : "Adicionar aos favoritos"}
+                    type="button"
+                    onClick={() => setMobileSection('rooms')}
+                    className="lg:hidden flex items-center justify-center text-slate-400 hover:text-slate-200 p-1 rounded-lg shrink-0 transition"
                   >
-                    <Heart className={`h-3.5 w-3.5 ${favorites.includes(activeRoom.id) ? 'fill-current' : ''}`} />
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                    </svg>
+                  </button>
+                  
+                  {/* Title & Subtitle Stack - Telegram PC Style */}
+                  <div className="flex flex-col min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <h2 className="text-xs sm:text-sm font-bold text-slate-100 flex items-center gap-1 truncate tracking-tight">
+                        💬 {activeRoom.nome}
+                      </h2>
+                      
+                      {/* Favorites Indicator */}
+                      <button
+                        onClick={() => handleFavoriteRoom(activeRoom.id)}
+                        className={`transition shrink-0 ${favorites.includes(activeRoom.id) ? 'text-amber-400 hover:text-amber-500' : 'text-slate-500 hover:text-slate-400'}`}
+                        title={favorites.includes(activeRoom.id) ? "Remover dos favoritos" : "Adicionar aos favoritos"}
+                      >
+                        <Heart className={`h-3 w-3 ${favorites.includes(activeRoom.id) ? 'fill-current text-amber-400' : ''}`} />
+                      </button>
+
+                      {/* Status Badges */}
+                      {activeRoom.locked && (
+                        <span className="text-[7px] bg-red-500/15 border border-red-500/20 text-red-400 px-1 rounded font-mono font-bold shrink-0">
+                          LOCKED
+                        </span>
+                      )}
+                      {activeRoom.silence && (
+                        <span className="text-[7px] bg-amber-500/15 border border-amber-500/20 text-amber-400 px-1 rounded font-mono font-bold shrink-0">
+                          SILENCE
+                        </span>
+                      )}
+                    </div>
+                    {/* Small compact subtitle beneath the group name */}
+                    <span className="text-[10px] text-slate-500 font-mono tracking-tight -mt-0.5">
+                      {roomUsers.length} membros • {roomUsers.filter(u => u.id.startsWith('bot_') || Math.random() > 0.45).length} online
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {/* Manual Refresh Button */}
+                  <button
+                    onClick={handleRefreshChat}
+                    disabled={isRefreshing}
+                    className="p-1 sm:p-1.5 rounded-lg border border-slate-800 bg-slate-900/60 text-slate-400 hover:text-slate-200 transition flex items-center justify-center"
+                    title="Atualizar Feed"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin text-indigo-400' : ''}`} />
                   </button>
 
-                  {/* Status Badges */}
-                  {activeRoom.locked && (
-                    <span className="text-[8px] bg-red-500/15 border border-red-500/20 text-red-400 px-1 py-0.5 rounded font-mono font-bold">
-                      BLOQUEADA
-                    </span>
-                  )}
-                  {activeRoom.silence && (
-                    <span className="text-[8px] bg-amber-500/15 border border-amber-500/20 text-amber-400 px-1 py-0.5 rounded font-mono font-bold">
-                      SILENCIADA
-                    </span>
-                  )}
+                  {/* Options Balloon Button - All tools tucked here to keep chat pristine */}
+                  <button
+                    onClick={() => {
+                      setShowRoomOptions(!showRoomOptions);
+                      setAnnounceInput(activeRoom.announce || '');
+                    }}
+                    className={`px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border text-[10px] sm:text-xs font-bold transition flex items-center gap-1 ${
+                      showRoomOptions 
+                        ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20' 
+                        : 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800'
+                    }`}
+                  >
+                    <Settings className="h-3.5 w-3.5 text-indigo-400" />
+                    <span className="hidden xs:inline">Opções</span>
+                  </button>
                 </div>
-
-                <p className="text-[11px] text-slate-400 leading-normal">{activeRoom.descricao}</p>
-                
-                {/* Creator and Participants count */}
-                <div className="flex items-center gap-2.5 text-[10px] text-slate-500 font-mono">
-                  <span className="flex items-center gap-1">
-                    <Crown className="h-3 w-3 text-amber-500/70" /> Dono: <span className="text-slate-400">Kelvin</span>
-                  </span>
-                  <span>•</span>
-                  <span>{roomUsers.length} online</span>
-                </div>
-
-                {/* Compact Participant List (NO PHOTOS as explicitly requested: "remova as fotos") */}
-                <div className="flex flex-wrap items-center gap-1.5 pt-1.5">
-                  <span className="text-[9px] font-mono uppercase text-slate-500 font-bold">Na sala:</span>
-                  {roomUsers.map(u => {
-                    const isMe = u.id === currentUser.id;
-                    return (
-                      <span
-                        key={u.id}
-                        onClick={() => onViewProfile(u.id)}
-                        className="inline-flex items-center gap-0.5 bg-slate-950/40 border border-slate-800/80 rounded-md px-1.5 py-0.5 hover:bg-slate-800/40 cursor-pointer transition text-[10px]"
-                        title={`Nível ${u.nivel} • ${u.cargo}`}
-                      >
-                        <span className={`${getCargoColorClasses(u.cargo)} font-medium`}>
-                          {u.username}
-                        </span>
-                        {isMe && <span className="text-[8px] text-slate-600">(Você)</span>}
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Header Action Buttons */}
-              <div className="flex items-center gap-2 shrink-0 self-start md:self-center">
-                {/* Manual Refresh Button */}
-                <button
-                  onClick={handleRefreshChat}
-                  disabled={isRefreshing}
-                  className="p-1.5 rounded-lg border border-slate-800 bg-slate-900/60 text-slate-400 hover:text-slate-200 transition flex items-center justify-center"
-                  title="Atualizar Feed"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin text-indigo-400' : ''}`} />
-                </button>
-
-                {/* Options Balloon Button - All tools tucked here to keep chat pristine */}
-                <button
-                  onClick={() => {
-                    setShowRoomOptions(!showRoomOptions);
-                    setAnnounceInput(activeRoom.announce || '');
-                  }}
-                  className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition flex items-center gap-1.5 ${
-                    showRoomOptions 
-                      ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20' 
-                      : 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800'
-                  }`}
-                >
-                  ⚙️ Opções da Sala
-                </button>
               </div>
             </div>
 
@@ -768,6 +918,43 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
                     </button>
                   </div>
 
+                  {/* Info da Sala & Membros - Telegram PC Style inside Options */}
+                  <div className="bg-slate-900/40 p-3 rounded-lg border border-slate-900 space-y-2.5">
+                    <p className="text-[11px] text-slate-400 leading-relaxed font-sans">
+                      <span className="font-semibold text-slate-300">Descrição:</span> {activeRoom.descricao || 'Sem descrição.'}
+                    </p>
+                    <div className="flex items-center gap-2.5 text-[10px] text-slate-500 font-mono">
+                      <span className="flex items-center gap-1">
+                        <Crown className="h-3 w-3 text-amber-500/70" /> Dono: <span className="text-slate-400">Kelvin</span>
+                      </span>
+                      <span>•</span>
+                      <span>{roomUsers.length} membros online</span>
+                    </div>
+                    
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-slate-900/60">
+                      <span className="text-[9px] font-mono uppercase text-indigo-400/80 font-bold">Na sala agora:</span>
+                      {roomUsers.map(u => {
+                        const isMe = u.id === currentUser.id;
+                        return (
+                          <span
+                            key={u.id}
+                            onClick={() => {
+                              setShowRoomOptions(false);
+                              onViewProfile(u.id);
+                            }}
+                            className="inline-flex items-center gap-0.5 bg-slate-950/80 border border-slate-800/80 rounded-md px-1.5 py-0.5 hover:bg-slate-850 cursor-pointer transition text-[10px]"
+                            title={`Nível ${u.nivel} • ${u.cargo}`}
+                          >
+                            <span className={`${getCargoColorClasses(u.cargo)} font-medium`}>
+                              {u.username}
+                            </span>
+                            {isMe && <span className="text-[8px] text-slate-600 ml-0.5">(Você)</span>}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {/* 1. ANNOUNCEMENT MANAGEMENT SECTION */}
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
@@ -783,7 +970,7 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
                           value={announceInput}
                           onChange={(e) => setAnnounceInput(e.target.value)}
                           placeholder="Mudar anúncio da sala... (ou envie o comando *anuncio no chat)"
-                          className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                          className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-base lg:text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
                         />
                         <button
                           onClick={async () => {
@@ -982,63 +1169,142 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
                       </div>
                     )}
                   </div>
+
+                  {/* 4. LEAVE ROOM BUTTON */}
+                  <div className="pt-3 border-t border-slate-900 flex justify-end">
+                    <button
+                      onClick={async () => {
+                        if (window.confirm('Tem certeza de que deseja sair desta sala de chat?')) {
+                          setShowRoomOptions(false);
+                          try {
+                            await api.leaveRoom(activeRoom.id, currentUser.id, 'manual');
+                            setActiveRoom(null);
+                          } catch (err: any) {
+                            console.error('Erro ao sair da sala:', err);
+                          }
+                        }
+                      }}
+                      className="flex items-center gap-1.5 bg-red-600/10 hover:bg-red-600/25 text-red-400 border border-red-500/20 rounded-lg px-3.5 py-1.5 text-xs font-bold transition duration-150 cursor-pointer"
+                    >
+                      <LogOut className="h-3.5 w-3.5" /> Sair da Sala de Chat
+                    </button>
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
 
             {/* Live Message Feed Container */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-950/15">
+            <div
+              ref={messageContainerRef}
+              className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-3 bg-slate-950/15"
+              style={{ overflowAnchor: 'auto' }}
+            >
               <div className="text-center py-2">
                 <span className="text-[10px] font-mono bg-slate-800/40 text-slate-500 px-2 py-0.5 rounded border border-slate-700/20">
                   Bem-vindo ao canal de mensagens criptografadas FCFUNZ
                 </span>
               </div>
 
-              {messages.map((msg) => {
+              {messages.length > visibleCount && (
+                <div ref={sentinelRef} className="flex justify-center py-1">
+                  <button
+                    type="button"
+                    onClick={handleLoadMore}
+                    className="text-[10px] font-mono text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/15 border border-indigo-500/15 hover:border-indigo-500/25 px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-ping" />
+                    Carregar mensagens anteriores...
+                  </button>
+                </div>
+              )}
+
+              {messages.slice(-visibleCount).map((msg) => {
                 const isSystem = msg.tipo === 'system' || msg.tipo === 'administrative';
                 const isAutomatic = msg.tipo === 'automatic';
 
                 if (isSystem) {
+                  const entryMatch = msg.conteudo.match(/^([A-Z0-9_-]+)\s*\[(\d+)\]\s*ENTROU NA SALA$/i);
+                  if (entryMatch) {
+                    const username = entryMatch[1];
+                    const nivel = entryMatch[2];
+                    const profile = db.profiles.find(p => p.username.toLowerCase() === username.toLowerCase());
+                    return (
+                      <div key={msg.id} className="flex justify-center my-1.5">
+                        <span className="text-[10px] font-mono bg-indigo-500/10 text-indigo-300 border border-indigo-500/15 rounded-md px-3 py-1.5 text-center max-w-md flex items-center justify-center gap-1.5 flex-wrap">
+                          <span className={`font-bold uppercase ${profile ? getCargoColorClasses(profile.cargo) : 'text-indigo-200'}`}>
+                            {username}
+                          </span>
+                          <span className="text-amber-400 font-extrabold bg-amber-500/15 border border-amber-500/25 px-1.5 py-0.5 rounded text-[8px] tracking-tight">
+                            Lvl {nivel}
+                          </span>
+                          {profile && <UserBadgesInline cargo={profile.cargo} className="scale-95" />}
+                          <span className="text-indigo-400 font-bold tracking-wider">
+                            ENTROU NA SALA
+                          </span>
+                        </span>
+                      </div>
+                    );
+                  }
+
                   return (
                     <div key={msg.id} className="flex justify-center my-1.5">
                       <span className="text-[10px] font-mono bg-indigo-500/10 text-indigo-300 border border-indigo-500/15 rounded-md px-3 py-1 text-center max-w-md">
-                        {msg.conteudo}
+                        {renderRichTextWithUsers(msg.conteudo)}
                       </span>
                     </div>
                   );
                 }
 
                 if (isAutomatic) {
-                  const isShower = msg.conteudo.includes('GIFT SHOWER') || msg.conteudo.includes('🌊');
-                  const isGift = msg.conteudo.includes('🎁');
+                  const isShower = msg.conteudo.includes('GIFT SHOWER') || msg.conteudo.includes('🌊') || msg.conteudo.includes('SUPER CHUVA');
+                  const isGift = msg.conteudo.includes('🎁') || msg.conteudo.includes('GIFT') || msg.conteudo.includes('💎') || msg.conteudo.includes('presenteou') || msg.conteudo.includes('enviou');
                   
                   if (isShower) {
+                    const isBD = msg.conteudo.includes('💎') || msg.conteudo.includes('DIAMANTE') || msg.conteudo.includes('Diamond');
                     return (
                       <div key={msg.id} className="w-full flex justify-center my-3 px-4">
-                        <div className="relative overflow-hidden bg-gradient-to-r from-amber-500/20 via-pink-500/20 to-purple-600/20 border-2 border-amber-400/50 rounded-xl p-4 text-center max-w-lg shadow-[0_0_15px_rgba(245,158,11,0.2)] flex flex-col items-center gap-1.5 w-full">
-                          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-500" />
-                          <div className="bg-amber-400 text-slate-950 text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full tracking-wider animate-bounce">
-                            🌊 CHUVEIRO DE PRESENTES MAGNÍFICO 🌊
+                        <div className={`relative overflow-hidden border-2 rounded-xl p-4 text-center max-w-lg flex flex-col items-center gap-1.5 w-full transition duration-300 hover:scale-102 ${
+                          isBD 
+                            ? 'bg-gradient-to-r from-cyan-950/60 via-indigo-950/60 to-blue-950/60 border-cyan-400/60 shadow-[0_0_20px_rgba(34,211,238,0.3)]' 
+                            : 'bg-gradient-to-r from-amber-500/20 via-pink-500/20 to-purple-600/20 border-amber-400/50 shadow-[0_0_15px_rgba(245,158,11,0.2)]'
+                        }`}>
+                          <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r ${
+                            isBD ? 'from-cyan-400 via-blue-500 to-indigo-500' : 'from-yellow-400 via-pink-500 to-purple-500'
+                          }`} />
+                          
+                          <div className={`text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full tracking-wider animate-bounce ${
+                            isBD ? 'bg-cyan-400 text-slate-950' : 'bg-amber-400 text-slate-950'
+                          }`}>
+                            {isBD ? '💎 TEMPESTADE DE DIAMANTES NEGROS 💎' : '🌊 CHUVEIRO DE PRESENTES MAGNÍFICO 🌊'}
                           </div>
+                          
                           <p className="text-xs font-bold text-white leading-relaxed whitespace-pre-line filter drop-shadow">
-                            {msg.conteudo}
+                            {renderRichTextWithUsers(msg.conteudo)}
                           </p>
-                          <div className="text-[10px] text-amber-300 font-mono mt-0.5">
-                            ✨ Sinta a chuva de generosidade no FCFUNZ! ✨
+                          
+                          <div className={`text-[10px] font-mono mt-0.5 ${isBD ? 'text-cyan-300' : 'text-amber-300'}`}>
+                            {isBD ? '✨ Um espetáculo luxuoso no chat do FCFUNZ! ✨' : '✨ Sinta a chuva de generosidade no FCFUNZ! ✨'}
                           </div>
                         </div>
                       </div>
                     );
                   } else if (isGift) {
+                    const isBD = msg.conteudo.includes('💎') || msg.conteudo.includes('DIAMANTE') || msg.conteudo.includes('Diamond');
                     return (
                       <div key={msg.id} className="w-full flex justify-center my-2 px-4">
-                        <div className="bg-gradient-to-r from-purple-950/40 via-indigo-950/50 to-purple-950/40 border border-purple-500/40 rounded-lg p-3 text-center max-w-md shadow-md flex items-center gap-2.5 justify-center w-full">
-                          <span className="text-2xl animate-pulse">🎁</span>
-                          <div className="text-left">
-                            <p className="text-xs font-bold text-purple-200">
-                              {msg.conteudo}
+                        <div className={`border rounded-lg p-3 text-center max-w-md shadow-md flex items-center gap-2.5 justify-center w-full transition duration-300 hover:scale-102 ${
+                          isBD
+                            ? 'bg-gradient-to-r from-cyan-950/40 via-blue-950/40 to-indigo-950/40 border-cyan-500/50 shadow-[0_0_10px_rgba(6,182,212,0.15)]'
+                            : 'bg-gradient-to-r from-purple-950/40 via-indigo-950/50 to-purple-950/40 border-purple-500/40'
+                        }`}>
+                          <span className="text-2xl animate-pulse">{isBD ? '💎' : '🎁'}</span>
+                          <div className="text-left flex-1 min-w-0">
+                            <p className={`text-xs font-bold leading-relaxed ${isBD ? 'text-cyan-200' : 'text-purple-200'}`}>
+                              {renderRichTextWithUsers(msg.conteudo)}
                             </p>
-                            <span className="text-[9px] text-indigo-400 font-mono uppercase tracking-wider block mt-0.5">✦ Generosidade no chat retrô FCFUNZ ✦</span>
+                            <span className={`text-[9px] font-mono uppercase tracking-wider block mt-0.5 ${isBD ? 'text-cyan-400' : 'text-indigo-400'}`}>
+                              {isBD ? '✦ Prestígio & Nobreza no FCFUNZ ✦' : '✦ Generosidade no chat retrô FCFUNZ ✦'}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -1120,7 +1386,7 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
                             style={msg.cor && msg.cor.startsWith('#') ? { color: msg.cor } : undefined}
                             className={msg.cor ? `${!msg.cor.startsWith('#') ? msg.cor : ''} font-bold` : ''}
                           >
-                            {msg.conteudo}
+                            {renderRichTextWithUsers(msg.conteudo)}
                           </p>
                         )}
                       </div>
@@ -1132,7 +1398,7 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
             </div>
 
             {/* Input Form with Command suggestions & emoticons */}
-            <form onSubmit={handleSendMessage} className="p-3 border-t border-slate-800 bg-slate-950/40 relative">
+            <form onSubmit={handleSendMessage} className="p-2 sm:p-3 border-t border-slate-800 bg-slate-950/40 relative">
 
               <div className="relative flex items-center gap-2">
                 <button
@@ -1140,6 +1406,7 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
                   onClick={() => {
                     setShowEmojis(!showEmojis);
                     setShowCommands(false);
+                    setShowGiftPanel(false);
                   }}
                   className={`p-2 rounded-lg border transition ${showEmojis ? 'bg-indigo-600/10 border-indigo-500/30 text-indigo-400' : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-400'}`}
                   title="Emojis"
@@ -1150,8 +1417,27 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
                 <button
                   type="button"
                   onClick={() => {
+                    setShowGiftPanel(!showGiftPanel);
+                    setShowEmojis(false);
+                    setShowCommands(false);
+                    // Select a default target from participants if not set
+                    if (!giftTargetId && roomUsers.length > 0) {
+                      const otherUser = roomUsers.find(u => u.id !== currentUser.id);
+                      if (otherUser) setGiftTargetId(otherUser.id);
+                    }
+                  }}
+                  className={`p-2 rounded-lg border transition ${showGiftPanel ? 'bg-pink-600/10 border-pink-500/30 text-pink-400' : 'bg-slate-900 border-slate-800 text-pink-500 hover:text-pink-400'}`}
+                  title="Enviar Presente Rápido"
+                >
+                  <Gift className="h-4.5 w-4.5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
                     setShowCommands(!showCommands);
                     setShowEmojis(false);
+                    setShowGiftPanel(false);
                   }}
                   className={`p-2 rounded-lg border transition flex items-center gap-1 shrink-0 ${showCommands ? 'bg-amber-600/10 border-amber-500/30 text-amber-400' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-300'}`}
                   title="Comandos da Sala"
@@ -1160,8 +1446,140 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
                   <span className="text-[10px] font-bold font-mono uppercase tracking-wide hidden sm:inline">Comandos</span>
                 </button>
 
+                {showGiftPanel && (
+                  <div className="absolute bottom-12 left-0 w-80 max-w-[calc(100vw-2.5rem)] p-4 rounded-xl border border-slate-800 bg-slate-950 shadow-2xl z-50 flex flex-col gap-3">
+                    <div className="flex items-center justify-between pb-1.5 border-b border-slate-900">
+                      <span className="text-[10px] font-mono font-bold text-pink-400 uppercase tracking-wider flex items-center gap-1.5">
+                        🎁 Enviar Presente Rápido
+                      </span>
+                      <button 
+                        type="button" 
+                        onClick={() => setShowGiftPanel(false)} 
+                        className="text-[9px] text-slate-500 hover:text-slate-300 font-mono"
+                      >
+                        [Fechar]
+                      </button>
+                    </div>
+
+                    {/* Sub tabs to choose mode */}
+                    <div className="flex bg-slate-900/60 p-0.5 rounded-lg border border-slate-800 text-[9px] font-bold">
+                      <button
+                        type="button"
+                        onClick={() => setGiftPanelMode('individual')}
+                        className={`flex-1 py-1 rounded-md transition text-center ${
+                          giftPanelMode === 'individual' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Individual
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setGiftPanelMode('all')}
+                        className={`flex-1 py-1 rounded-md transition text-center ${
+                          giftPanelMode === 'all' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Para Todos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setGiftPanelMode('shower')}
+                        className={`flex-1 py-1 rounded-md transition text-center ${
+                          giftPanelMode === 'shower' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Chuveiro 🌊
+                      </button>
+                    </div>
+
+                    {/* Dynamic Inputs based on mode */}
+                    {giftPanelMode === 'individual' && (
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-mono font-bold text-slate-400 uppercase tracking-wider block">Destinatário:</label>
+                        <select
+                          value={giftTargetId}
+                          onChange={(e) => setGiftTargetId(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 font-medium"
+                        >
+                          <option value="">-- Selecione um usuário na sala --</option>
+                          {roomUsers.filter(u => u.id !== currentUser.id).map(u => (
+                            <option key={u.id} value={u.id}>
+                              {u.username} ({u.cargo})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {giftPanelMode === 'all' && (
+                      <div className="bg-slate-900/40 border border-slate-800/60 rounded-lg p-2 text-[10px] text-slate-400 leading-normal">
+                        🎁 O presente selecionado será enviado para **todos os {roomUsers.filter(u => u.id !== currentUser.id).length} usuários ativos** na sala ao mesmo tempo!
+                      </div>
+                    )}
+
+                    {giftPanelMode === 'shower' && (
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-mono font-bold text-slate-400 uppercase tracking-wider block">Mimos por Pessoa (Chuveiro):</label>
+                        <select
+                          value={giftShowerQty}
+                          onChange={(e) => setGiftShowerQty(parseInt(e.target.value))}
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 font-medium"
+                        >
+                          <option value="2">2x presentes para cada participante</option>
+                          <option value="3">3x presentes (Super Shower)</option>
+                          <option value="5">5x presentes (Mega Shower)</option>
+                          <option value="10">10x presentes (Tempestade ⚡)</option>
+                          <option value="25">25x presentes (Tsunami de Mimos 🌊)</option>
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Gift Item Selector Grid */}
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-mono font-bold text-slate-400 uppercase tracking-wider block">Presente:</label>
+                      <div className="grid grid-cols-4 gap-2 max-h-40 overflow-y-auto pr-1">
+                        {api.getGifts().map(g => (
+                          <button
+                            key={g.id}
+                            type="button"
+                            onClick={() => setSelectedGiftId(g.id)}
+                            className={`flex flex-col items-center justify-center p-1.5 rounded-lg border transition ${
+                              selectedGiftId === g.id 
+                                ? 'bg-pink-600/10 border-pink-500 text-pink-300' 
+                                : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                            }`}
+                          >
+                            <span className="text-xl filter drop-shadow-sm select-none">{g.imagem}</span>
+                            <span className="text-[8px] font-bold mt-1 text-center truncate w-full">{g.nome}</span>
+                            <span className="text-[8px] font-mono text-amber-500 font-semibold mt-0.5">{g.valor} MZN</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Feedback Status */}
+                    {giftStatus && (
+                      <div className={`p-2 rounded-lg text-[10px] font-medium leading-tight text-center ${
+                        giftStatus.success ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'
+                      }`}>
+                        {giftStatus.success || giftStatus.error}
+                      </div>
+                    )}
+
+                    {/* Action Button */}
+                    <button
+                      type="button"
+                      disabled={isSendingGift || !selectedGiftId || (giftPanelMode === 'individual' && !giftTargetId)}
+                      onClick={handleSendInlineGift}
+                      className="w-full bg-pink-600 hover:bg-pink-500 disabled:opacity-50 text-white font-bold text-xs py-2 rounded-lg transition shadow-lg shadow-pink-600/15"
+                    >
+                      {isSendingGift ? 'Enviando presente...' : 'Enviar Presente'}
+                    </button>
+                  </div>
+                )}
+
                 {showEmojis && (
-                  <div className="absolute bottom-12 left-0 w-72 p-3 rounded-xl border border-slate-800 bg-slate-950 shadow-2xl z-40 flex flex-col gap-2.5">
+                  <div className="absolute bottom-12 left-0 w-72 max-w-[calc(100vw-2.5rem)] sm:w-72 p-3 rounded-xl border border-slate-800 bg-slate-950 shadow-2xl z-40 flex flex-col gap-2.5">
                     {/* Keyboard Tabs */}
                     <div className="flex bg-slate-900/60 p-0.5 rounded-lg border border-slate-800/65 text-[10px] font-bold">
                       <button
@@ -1341,7 +1759,7 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
                 )}
 
                 {showCommands && (
-                  <div className="absolute bottom-12 left-0 w-80 max-h-96 overflow-y-auto p-4 rounded-xl border border-slate-800 bg-slate-950 shadow-2xl z-45 space-y-3">
+                  <div className="absolute bottom-12 left-0 w-80 max-w-[calc(100vw-2.5rem)] max-h-64 sm:max-h-96 overflow-y-auto p-4 rounded-xl border border-slate-800 bg-slate-950 shadow-2xl z-45 space-y-3">
                     <div className="flex items-center justify-between pb-1.5 border-b border-slate-800">
                       <span className="text-[10px] font-mono font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-1">
                         <Zap className="h-3 w-3 text-indigo-400" /> Menu de Comandos da Sala
@@ -1358,31 +1776,15 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
                     <div className="space-y-3">
                       {/* Categoria Jogos */}
                       <div>
-                        <p className="text-[9px] font-mono font-bold text-slate-500 uppercase tracking-wider mb-1">DADOS & DUELOS 🎲</p>
+                        <p className="text-[9px] font-mono font-bold text-slate-500 uppercase tracking-wider mb-1">JOGOS DA SALA 🎲</p>
                         <div className="space-y-1">
                           <button
                             type="button"
-                            onClick={() => { setNewMessage('*bot dice'); setShowCommands(false); }}
+                            onClick={() => { setNewMessage('*start 10 dice'); setShowCommands(false); }}
                             className="w-full text-left p-1.5 rounded bg-slate-900 hover:bg-slate-800/80 border border-slate-800/60 hover:border-slate-700 transition text-[11px] flex justify-between items-center"
                           >
-                            <span className="font-mono text-slate-200">*bot dice</span>
-                            <span className="text-[9px] text-indigo-400">Dados Grátis</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => { setNewMessage('*bot dice 10'); setShowCommands(false); }}
-                            className="w-full text-left p-1.5 rounded bg-slate-900 hover:bg-slate-800/80 border border-slate-800/60 hover:border-slate-700 transition text-[11px] flex justify-between items-center"
-                          >
-                            <span className="font-mono text-slate-200">*bot dice [mzn]</span>
-                            <span className="text-[9px] text-indigo-400">Duelo c/ Bot</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => { setNewMessage('*bot dice 10 alto'); setShowCommands(false); }}
-                            className="w-full text-left p-1.5 rounded bg-slate-900 hover:bg-slate-800/80 border border-slate-800/60 hover:border-slate-700 transition text-[11px] flex justify-between items-center"
-                          >
-                            <span className="font-mono text-slate-200">*bot dice [mzn] alto</span>
-                            <span className="text-[9px] text-indigo-400 font-mono">Aposta Alto/Baixo</span>
+                            <span className="font-mono text-slate-200">*start [valor] dice</span>
+                            <span className="text-[9px] text-indigo-400">Dice Multiplayer</span>
                           </button>
                         </div>
                       </div>
@@ -1393,11 +1795,11 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
                         <div className="space-y-1">
                           <button
                             type="button"
-                            onClick={() => { setNewMessage('*shower 10'); setShowCommands(false); }}
+                            onClick={() => { setNewMessage('*tempestade 3 rosa'); setShowCommands(false); }}
                             className="w-full text-left p-1.5 rounded bg-slate-900 hover:bg-slate-800/80 border border-slate-800/60 hover:border-slate-700 transition text-[11px] flex justify-between items-center"
                           >
-                            <span className="font-mono text-slate-200">*shower [mzn]</span>
-                            <span className="text-[9px] text-amber-400">Chuva de MZN</span>
+                            <span className="font-mono text-slate-200">*tempestade [quant] [presente]</span>
+                            <span className="text-[9px] text-amber-400">Tempestade de Mimos ⚡</span>
                           </button>
                           <button
                             type="button"
@@ -1436,7 +1838,7 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
                   value={newMessage}
                   disabled={activeRoom.silence && currentUser.cargo === 'Unverified User'}
                   onChange={(e) => setNewMessage(e.target.value)}
-                  className={`flex-1 rounded-lg bg-slate-900 border border-slate-800 px-3.5 py-2 text-xs placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50 ${selectedColor ? `${selectedColor} font-bold` : 'text-slate-200'}`}
+                  className={`flex-1 rounded-lg bg-slate-900 border border-slate-800 px-3.5 py-2 text-base lg:text-xs placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50 ${selectedColor ? `${selectedColor} font-bold` : 'text-slate-200'}`}
                 />
 
                 <button
@@ -1448,47 +1850,16 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
                 </button>
               </div>
 
-              {/* Custom message text color picker */}
-              <div className="flex items-center gap-1.5 mt-2 px-1">
-                <span className="text-[9px] font-mono font-bold text-slate-500 uppercase tracking-wider mr-1">Cor da Mensagem:</span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedColor('')}
-                  className={`w-3.5 h-3.5 rounded-full border transition hover:scale-115 ${selectedColor === '' ? 'border-white bg-slate-200' : 'border-slate-800 bg-slate-400'}`}
-                  title="Padrão (Slate)"
-                />
-                <button
-                  type="button"
-                  onClick={() => setSelectedColor('text-indigo-400')}
-                  className={`w-3.5 h-3.5 rounded-full border bg-indigo-400 transition hover:scale-115 ${selectedColor === 'text-indigo-400' ? 'border-white ring-1 ring-indigo-400' : 'border-slate-850'}`}
-                  title="Neon Indigo"
-                />
-                <button
-                  type="button"
-                  onClick={() => setSelectedColor('text-emerald-400')}
-                  className={`w-3.5 h-3.5 rounded-full border bg-emerald-400 transition hover:scale-115 ${selectedColor === 'text-emerald-400' ? 'border-white ring-1 ring-emerald-400' : 'border-slate-850'}`}
-                  title="Neon Emerald"
-                />
-                <button
-                  type="button"
-                  onClick={() => setSelectedColor('text-amber-400')}
-                  className={`w-3.5 h-3.5 rounded-full border bg-amber-400 transition hover:scale-115 ${selectedColor === 'text-amber-400' ? 'border-white ring-1 ring-amber-400' : 'border-slate-850'}`}
-                  title="Neon Amber"
-                />
-                <button
-                  type="button"
-                  onClick={() => setSelectedColor('text-cyan-400')}
-                  className={`w-3.5 h-3.5 rounded-full border bg-cyan-400 transition hover:scale-115 ${selectedColor === 'text-cyan-400' ? 'border-white ring-1 ring-cyan-400' : 'border-slate-850'}`}
-                  title="Neon Cyan"
-                />
-                <button
-                  type="button"
-                  onClick={() => setSelectedColor('text-rose-400')}
-                  className={`w-3.5 h-3.5 rounded-full border bg-rose-400 transition hover:scale-115 ${selectedColor === 'text-rose-400' ? 'border-white ring-1 ring-rose-400' : 'border-slate-850'}`}
-                  title="Neon Rose"
-                />
-
-                {currentUser.purchased_text_color && currentUser.purchased_text_color_expires_at && new Date(currentUser.purchased_text_color_expires_at) > new Date() && (
+              {/* Custom message text color picker - Only visible if user has an active purchased color */}
+              {currentUser.purchased_text_color && currentUser.purchased_text_color_expires_at && new Date(currentUser.purchased_text_color_expires_at) > new Date() ? (
+                <div className="flex items-center gap-1.5 mt-2 px-1">
+                  <span className="text-[9px] font-mono font-bold text-slate-500 uppercase tracking-wider mr-1">Cor da Mensagem:</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedColor('')}
+                    className={`w-3.5 h-3.5 rounded-full border transition hover:scale-115 ${selectedColor === '' ? 'border-white bg-slate-200' : 'border-slate-800 bg-slate-400'}`}
+                    title="Padrão (Slate)"
+                  />
                   <button
                     type="button"
                     onClick={() => setSelectedColor(currentUser.purchased_text_color || '')}
@@ -1501,8 +1872,8 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
                     )}
                     <span className="absolute -top-1.5 -right-1.5 text-[8px] filter drop-shadow">🛍️</span>
                   </button>
-                )}
-              </div>
+                </div>
+              ) : null}
             </form>
           </>
         ) : (
@@ -1542,7 +1913,7 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
                     value={newRoomName}
                     onChange={(e) => setNewRoomName(e.target.value)}
                     placeholder="Ex: Arena Dice *bot 🎲"
-                    className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-base lg:text-xs text-slate-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
                 </div>
 
@@ -1553,7 +1924,7 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
                     value={newRoomDesc}
                     onChange={(e) => setNewRoomDesc(e.target.value)}
                     placeholder="Ex: Local oficial para minijogos e conversas"
-                    className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-base lg:text-xs text-slate-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
                 </div>
 
