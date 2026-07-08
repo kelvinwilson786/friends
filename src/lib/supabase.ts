@@ -24,9 +24,48 @@ import {
   Anuncio
 } from '../types';
 
-// Read credentials from env
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '';
+// Clean environment variable values (remove accidental quotes, trailing slashes, or appended subpaths like /rest/v1)
+const cleanUrl = (url: string): string => {
+  if (!url) return '';
+  let cleaned = url.trim();
+  if (cleaned.startsWith('"') && cleaned.endsWith('"')) cleaned = cleaned.slice(1, -1);
+  if (cleaned.startsWith("'") && cleaned.endsWith("'")) cleaned = cleaned.slice(1, -1);
+  cleaned = cleaned.trim();
+  
+  // Strip trailing slashes first
+  while (cleaned.endsWith('/')) {
+    cleaned = cleaned.slice(0, -1);
+  }
+  
+  // Strip common subpaths appended by mistake
+  if (cleaned.endsWith('/rest/v1')) {
+    cleaned = cleaned.slice(0, -8);
+  } else if (cleaned.endsWith('/auth/v1')) {
+    cleaned = cleaned.slice(0, -8);
+  }
+  
+  // Strip trailing slashes again
+  while (cleaned.endsWith('/')) {
+    cleaned = cleaned.slice(0, -1);
+  }
+  
+  return cleaned;
+};
+
+const cleanKey = (key: string): string => {
+  if (!key) return '';
+  let cleaned = key.trim();
+  if (cleaned.startsWith('"') && cleaned.endsWith('"')) cleaned = cleaned.slice(1, -1);
+  if (cleaned.startsWith("'") && cleaned.endsWith("'")) cleaned = cleaned.slice(1, -1);
+  return cleaned.trim();
+};
+
+const rawSupabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const rawSupabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '';
+
+// Read credentials from env and clean them
+const supabaseUrl = cleanUrl(rawSupabaseUrl);
+const supabaseAnonKey = cleanKey(rawSupabaseAnonKey);
 
 // Check if we should use the real Supabase client
 export const isUsingRealSupabase = !!(supabaseUrl && supabaseAnonKey);
