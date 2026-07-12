@@ -272,6 +272,8 @@ export interface Profile {
   purchased_emojis?: string[];   // e.g. ['basic_emojis', 'vip_emojis']
   purchased_text_color?: string; // hex color for chat text
   purchased_text_color_expires_at?: string; // ISO timestamp
+  last_withdrawal_at?: string; // Last MZN P2P withdrawal date
+  merchant_rate_sell?: number; // Custom rate set by merchant (MTs per 1 MZN)
 }
 
 export interface Sala {
@@ -534,4 +536,29 @@ export interface Anuncio {
   expira_em: string;
   status: 'pending' | 'active' | 'expired' | 'rejected';
 }
+
+export interface P2POrder {
+  id: string;
+  buyer_id: string;
+  buyer_username: string;
+  merchant_id: string;
+  merchant_username: string;
+  amount_mzn: number;
+  rate: number; // 1 mzn = rate MTs
+  total_mts: number;
+  payment_method: string; // e.g. "e-Mola"
+  comprovativo_name?: string; // name of receipt uploaded
+  comprovativo_data?: string; // base64 or placeholder url
+  status: 'pending' | 'completed' | 'rejected' | 'disputed';
+  created_at: string;
+  completed_at?: string;
+  type: 'deposit' | 'withdrawal';
+  withdrawal_phone?: string;
+}
+
+export interface MerchantRate {
+  merchant_id: string;
+  rate: number;
+}
+
 

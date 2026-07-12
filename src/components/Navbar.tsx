@@ -15,9 +15,10 @@ interface NavbarProps {
   openPMWithUser: (userId: string) => void;
   onViewProfile: (userId: string) => void;
   onLogout: () => void;
+  onOpenP2P: () => void;
 }
 
-export default function Navbar({ activeTab, setActiveTab, openPMWithUser, onViewProfile, onLogout }: NavbarProps) {
+export default function Navbar({ activeTab, setActiveTab, openPMWithUser, onViewProfile, onLogout, onOpenP2P }: NavbarProps) {
   const [currentUser, setCurrentUser] = useState<Profile>(db.getActiveProfile());
   const [allUsers, setAllUsers] = useState<Profile[]>(db.profiles);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -170,11 +171,15 @@ export default function Navbar({ activeTab, setActiveTab, openPMWithUser, onView
         <div className="flex items-center gap-4 sm:gap-6">
           
           {/* Credits / Moeda Unica (MZN) */}
-          <div className="flex items-center gap-1.5 bg-slate-900/80 border border-slate-800 px-3 py-1.5 rounded-lg shadow-sm" title="Seus Créditos FCFUNZ (MZN)">
-            <Coins className="h-4 w-4 text-amber-400" />
+          <div 
+            onClick={onOpenP2P}
+            className="flex items-center gap-1.5 bg-slate-900/80 border border-slate-800 hover:border-slate-700 hover:bg-slate-850 px-3 py-1.5 rounded-lg shadow-sm cursor-pointer transition-all active:scale-95 group" 
+            title="Clique para Depositar ou Levantar MZN via e-Mola"
+          >
+            <Coins className="h-4 w-4 text-amber-400 group-hover:animate-pulse" />
             <div className="text-right">
-              <span className="text-xs font-mono font-bold text-amber-400">{currentUser.credits}</span>
-              <span className="text-[10px] text-slate-400 ml-1">MZN</span>
+              <span className="text-xs font-mono font-bold text-amber-400 group-hover:text-amber-300">{currentUser ? currentUser.credits : 0}</span>
+              <span className="text-[10px] text-slate-400 ml-1 font-medium">MZN</span>
             </div>
           </div>
 

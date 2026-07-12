@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { api, db, subscribeToGlobalUpdates } from '../lib/supabase';
-import { Profile, Sala, ApolloCode, UserCargo, VaquinhaContribution, BADGE_CONFIG, saveCustomBadgeConfig, resetBadgeConfigToDefault, Anuncio } from '../types';
+import { Profile, Sala, ApolloCode, UserCargo, VaquinhaContribution, BADGE_CONFIG, saveCustomBadgeConfig, resetBadgeConfigToDefault, Anuncio, P2POrder } from '../types';
 import { Megaphone } from 'lucide-react';
 import { botOrchestrator } from '../lib/bots';
 import { motion, AnimatePresence } from 'motion/react';
@@ -40,6 +40,7 @@ export default function AdminSection() {
   const [ads, setAds] = useState<Anuncio[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [vaquinhaContributions, setVaquinhaContributions] = useState<VaquinhaContribution[]>([]);
+  const [p2pOrders, setP2pOrders] = useState<P2POrder[]>([]);
 
   // Custom non-blocking modals and toasts to bypass iframe alert/confirm issues
   const [successToast, setSuccessToast] = useState<string | null>(null);
@@ -143,6 +144,8 @@ export default function AdminSection() {
     
     setRespUserId(db.credits_responsible_user_id || 'u1');
     setRespPhone(db.credits_responsible_phone || '870870059');
+    
+    api.getP2POrders().then(setP2pOrders).catch(() => {});
 
     // Refresh bot statistics and listings
     setBotsList([...botOrchestrator.getBots()]);
@@ -679,6 +682,22 @@ export default function AdminSection() {
             {ads.filter(a => a.status === 'pending').length > 0 && (
               <span className="bg-rose-500 text-white font-mono text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
                 {ads.filter(a => a.status === 'pending').length}
+              </span>
+            )}
+          </button>
+          
+          <button
+            onClick={() => setActiveAdminTab('p2p' as any)}
+            className={`w-full text-xs font-semibold px-3 py-2.5 rounded-lg text-left flex items-center justify-between transition ${
+              activeAdminTab === ('p2p' as any) ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Coins className="h-4 w-4 text-emerald-400" /> Auditoria Transações P2P
+            </div>
+            {p2pOrders.filter(o => o.status === 'pending' || o.status === 'disputed').length > 0 && (
+              <span className="bg-indigo-500 text-white font-mono text-[9px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
+                {p2pOrders.filter(o => o.status === 'pending' || o.status === 'disputed').length}
               </span>
             )}
           </button>
@@ -2309,6 +2328,170 @@ export default function AdminSection() {
                           </div>
                         )}
                       </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeAdminTab === ('p2p' as any) && (
+          <div className="flex-1 flex flex-col min-h-0">
+            <div className="pb-4 border-b border-slate-800">
+              <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                <Coins className="h-4.5 w-4.5 text-emerald-400" /> Auditoria Geral de Transações P2P (e-Mola)
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Revise os depósitos e retiradas P2P do sistema. Monitore merchants, evite fraudes ("merchants burladores") e libere ou recuse ordens manualmente se necessário.
+              </p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto mt-4 space-y-4 pr-1">
+              {p2pOrders.length === 0 ? (
+                <div className="flex flex-col items-center justify-center p-8 text-center bg-slate-950/20 border border-slate-850 rounded-xl">
+                  <Coins className="h-8 w-8 text-slate-700 mb-2" />
+                  <p className="text-xs font-semibold text-slate-400">Nenhuma ordem P2P registrada no sistema</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {p2pOrders.map((order) => (
+                    <div 
+                      key={order.id} 
+                      className="p-4 rounded-xl border transition-all duration-300 bg-slate-950/40 border-slate-800"
+                    >
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-850/50">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-mono font-bold text-slate-300">Ordem ID: {order.id}</span>
+                            <span className="text-[9px] text-slate-500 font-mono">{new Date(order.created_at).toLocaleString('pt-MZ')}</span>
+                            <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${
+                              order.type === 'deposit' 
+                                ? 'bg-emerald-500/10 text-emerald-400' 
+                                : 'bg-red-500/10 text-red-400'
+                            }`}>
+                              {order.type === 'deposit' ? 'Depósito (Comprar)' : 'Levantamento (Vender)'}
+                            </span>
+                          </div>
+                          
+                          <div className="text-xs text-slate-400">
+                            Comprador/Autor: <strong className="text-slate-200">@{order.buyer_username}</strong> | Comerciante: <strong className="text-slate-200">@{order.merchant_username}</strong>
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <div className="text-xs text-slate-500 font-medium">Quantidade</div>
+                          <div className="text-sm font-mono font-bold text-amber-400">{order.amount_mzn} MZN</div>
+                          <div className="text-[11px] font-mono text-slate-400">Total: {order.total_mts.toFixed(2)} MTs</div>
+                        </div>
+                      </div>
+
+                      {/* Display Proof if exists */}
+                      {order.comprovativo_data && (
+                        <div className="mt-3 p-3 bg-slate-950 rounded-lg border border-slate-850 flex flex-col sm:flex-row items-center justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <FileText className="h-5 w-5 text-indigo-400 shrink-0" />
+                            <div className="text-left">
+                              <div className="text-xs font-bold text-slate-300">Comprovativo de Pagamento</div>
+                              <div className="text-[10px] text-slate-500 font-mono truncate max-w-[200px]">{order.comprovativo_name}</div>
+                            </div>
+                          </div>
+                          <a 
+                            href={order.comprovativo_data} 
+                            target="_blank" 
+                            rel="noreferrer"
+                            className="px-3 py-1 bg-slate-850 hover:bg-slate-800 text-slate-300 border border-slate-800 rounded text-xs font-bold transition-all"
+                          >
+                            Ver Imagem Completa
+                          </a>
+                        </div>
+                      )}
+
+                      {/* Display phone for withdrawal */}
+                      {order.withdrawal_phone && (
+                        <div className="mt-3 p-3 bg-slate-950 rounded-lg border border-slate-850 text-xs flex justify-between items-center">
+                          <span className="text-slate-400">Carteira e-Mola Destinatária:</span>
+                          <span className="font-mono font-bold text-indigo-400 select-all">{order.withdrawal_phone}</span>
+                        </div>
+                      )}
+
+                      {/* Controls */}
+                      <div className="mt-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                        <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                          <span>Status Atual:</span>
+                          <span className={`font-mono font-bold ${
+                            order.status === 'completed' 
+                              ? 'text-emerald-400' 
+                              : order.status === 'rejected' 
+                              ? 'text-red-400' 
+                              : order.status === 'disputed' 
+                              ? 'text-yellow-400 animate-pulse'
+                              : 'text-amber-400'
+                          }`}>
+                            {order.status.toUpperCase()}
+                          </span>
+                        </div>
+
+                        {order.status === 'pending' || order.status === 'disputed' ? (
+                          <div className="flex gap-2 w-full sm:w-auto">
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await api.updateP2POrderStatus(order.id, 'completed');
+                                  showSuccess(`Ordem ${order.id} liberada manualmente com sucesso!`);
+                                  
+                                  // Log audit log
+                                  const log: AuditLog = {
+                                    id: 'audit_' + Math.random().toString(36).substr(2, 9),
+                                    action: `Aprovou Ordem P2P ${order.id}`,
+                                    executor: currentUser.username,
+                                    target: `Usuário: @${order.buyer_username} (${order.amount_mzn} MZN)`,
+                                    timestamp: new Date().toISOString()
+                                  };
+                                  setAuditLogs(prev => [log, ...prev]);
+                                  const savedLogs = JSON.parse(localStorage.getItem('fcfunz_admin_audit_logs') || '[]');
+                                  localStorage.setItem('fcfunz_admin_audit_logs', JSON.stringify([log, ...savedLogs]));
+
+                                  loadAdminData();
+                                } catch (err: any) {
+                                  showError(err.message || 'Erro ao liberar ordem.');
+                                }
+                              }}
+                              className="flex-1 sm:flex-none px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer"
+                            >
+                              <Check className="h-3.5 w-3.5" /> Liberar Moedas
+                            </button>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await api.updateP2POrderStatus(order.id, 'rejected');
+                                  showSuccess(`Ordem ${order.id} recusada manualmente.`);
+                                  
+                                  // Log audit log
+                                  const log: AuditLog = {
+                                    id: 'audit_' + Math.random().toString(36).substr(2, 9),
+                                    action: `Recusou Ordem P2P ${order.id}`,
+                                    executor: currentUser.username,
+                                    target: `Usuário: @${order.buyer_username} (${order.amount_mzn} MZN)`,
+                                    timestamp: new Date().toISOString()
+                                  };
+                                  setAuditLogs(prev => [log, ...prev]);
+                                  const savedLogs = JSON.parse(localStorage.getItem('fcfunz_admin_audit_logs') || '[]');
+                                  localStorage.setItem('fcfunz_admin_audit_logs', JSON.stringify([log, ...savedLogs]));
+
+                                  loadAdminData();
+                                } catch (err: any) {
+                                  showError(err.message || 'Erro ao recusar ordem.');
+                                }
+                              }}
+                              className="flex-1 sm:flex-none px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer"
+                            >
+                              <X className="h-3.5 w-3.5" /> Recusar Ordem
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+
                     </div>
                   ))}
                 </div>

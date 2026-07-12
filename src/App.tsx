@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
+import P2PModal from './components/P2PModal';
 import ChatSection from './components/ChatSection';
 import SocialSection from './components/SocialSection';
 import MarketplaceSection from './components/MarketplaceSection';
@@ -19,7 +20,7 @@ import BadgesSection from './components/BadgesSection';
 import CreditsInfoSection from './components/CreditsInfoSection';
 import VaquinhaSection from './components/VaquinhaSection';
 import Footer from './components/Footer';
-import { api, db, subscribeToGlobalUpdates, isUsingRealSupabase, realSupabase } from './lib/supabase';
+import { api, db, subscribeToGlobalUpdates, isUsingRealSupabase, realSupabase, supabaseError, handleSupabaseConnectionError } from './lib/supabase';
 import { botOrchestrator } from './lib/bots';
 import { Profile } from './types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -34,7 +35,11 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<string>('social');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
-  const [currentUser, setCurrentUser] = useState<Profile>(db.getActiveProfile());
+  const [isP2POpen, setIsP2POpen] = useState<boolean>(false);
+  const [currentUser, setCurrentUser] = useState<Profile | null>(() => {
+    const localAuth = localStorage.getItem('fcfunz_auth_completed') === 'true';
+    return (localAuth && !isUsingRealSupabase) ? db.getActiveProfile() : null;
+  });
   const [initialPMRecipientId, setInitialPMRecipientId] = useState<string | null>(null);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
 
@@ -60,6 +65,9 @@ export default function App() {
   const [activeToast, setActiveToast] = useState<any | null>(null);
   const [customAlert, setCustomAlert] = useState<string | null>(null);
 
+  const [supabaseActive, setSupabaseActive] = useState(isUsingRealSupabase);
+  const [supabaseErrStr, setSupabaseErrStr] = useState(supabaseError);
+
   useEffect(() => {
     // Override standard blocking alert
     window.alert = (message: string) => {
@@ -71,7 +79,8 @@ export default function App() {
   useEffect(() => {
     if (isUsingRealSupabase && realSupabase) {
       // 1. Get initial session
-      realSupabase.auth.getSession().then(({ data: { session } }) => {
+      realSupabase.auth.getSession().then((res: any) => {
+        const session = res?.data?.session;
         if (session?.user) {
           api.getCurrentUser().then((profile) => {
             if (profile) {
@@ -79,32 +88,58 @@ export default function App() {
               setCurrentUser(profile);
               setIsRegistered(true);
             } else {
+              setCurrentUser(null);
               setIsRegistered(false);
             }
+          }).catch((err) => {
+            handleSupabaseConnectionError(err);
+            setCurrentUser(null);
+            setIsRegistered(false);
           });
         } else {
+          setCurrentUser(null);
           setIsRegistered(false);
         }
+      }).catch((err: any) => {
+        handleSupabaseConnectionError(err);
+        setCurrentUser(null);
+        setIsRegistered(false);
       });
 
       // 2. Listen to auth state changes
-      const { data: { subscription } } = realSupabase.auth.onAuthStateChange(async (event, session) => {
-        if (session?.user) {
-          const profile = await api.getCurrentUser();
-          if (profile) {
-            db.setActiveUser(profile.id);
-            setCurrentUser(profile);
-            setIsRegistered(true);
+      let subscription: any = null;
+      try {
+        const res = realSupabase.auth.onAuthStateChange(async (event: any, session: any) => {
+          if (session?.user) {
+            try {
+              const profile = await api.getCurrentUser();
+              if (profile) {
+                db.setActiveUser(profile.id);
+                setCurrentUser(profile);
+                setIsRegistered(true);
+              } else {
+                setCurrentUser(null);
+                setIsRegistered(false);
+              }
+            } catch (err) {
+              handleSupabaseConnectionError(err);
+              setCurrentUser(null);
+              setIsRegistered(false);
+            }
           } else {
+            setCurrentUser(null);
             setIsRegistered(false);
           }
-        } else {
-          setIsRegistered(false);
-        }
-      });
+        });
+        subscription = res?.data?.subscription;
+      } catch (err) {
+        handleSupabaseConnectionError(err);
+      }
 
       return () => {
-        subscription.unsubscribe();
+        if (subscription) {
+          subscription.unsubscribe();
+        }
       };
     } else {
       // High fidelity local storage fallback for local/preview environment
@@ -112,6 +147,8 @@ export default function App() {
       setIsRegistered(localAuth);
       if (localAuth) {
         setCurrentUser(db.getActiveProfile());
+      } else {
+        setCurrentUser(null);
       }
     }
   }, []);
@@ -131,26 +168,44 @@ export default function App() {
     }
 
     const handleUpdate = () => {
-      const active = db.getActiveProfile();
-      setCurrentUser(active);
+      const isLogged = localStorage.getItem('fcfunz_auth_completed') === 'true';
+      setSupabaseActive(isUsingRealSupabase);
+      setSupabaseErrStr(supabaseError);
       
-      if (active) {
-        const userNotifs = db.notifications.filter(n => n.usuario_id === active.id);
-        if (userNotifs.length > lastCount) {
-          const newest = userNotifs[userNotifs.length - 1];
-          if (!newest.read) {
-            setActiveToast(newest);
-            // Auto-hide after 4 seconds
-            setTimeout(() => {
-              setActiveToast((prev: any) => prev?.id === newest.id ? null : prev);
-            }, 4000);
+      if (isLogged) {
+        const active = db.getActiveProfile();
+        setCurrentUser(active);
+        
+        if (active) {
+          const userNotifs = db.notifications.filter(n => n.usuario_id === active.id);
+          if (userNotifs.length > lastCount) {
+            const newest = userNotifs[userNotifs.length - 1];
+            if (!newest.read) {
+              setActiveToast(newest);
+              // Auto-hide after 4 seconds
+              setTimeout(() => {
+                setActiveToast((prev: any) => prev?.id === newest.id ? null : prev);
+              }, 4000);
+            }
           }
+          lastCount = userNotifs.length;
         }
-        lastCount = userNotifs.length;
+      } else {
+        setCurrentUser(null);
       }
     };
+    const handleP2PChat = (e: any) => {
+      if (e.detail?.id) {
+        handleOpenPMWithUser(e.detail.id);
+      }
+    };
+    window.addEventListener('p2p_open_chat', handleP2PChat);
+
     const unsubscribe = subscribeToGlobalUpdates(handleUpdate);
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      window.removeEventListener('p2p_open_chat', handleP2PChat);
+    };
   }, []);
 
   // Switch to badges tab automatically on load if ?u= is present
@@ -210,7 +265,7 @@ export default function App() {
     e.preventDefault();
     setAuthError('');
 
-    if (!regUsername.trim() || !regEmail.trim() || !regPassword.trim()) {
+    if (!regUsername.trim() || !regPassword.trim()) {
       setAuthError('Preencha todos os campos obrigatórios.');
       return;
     }
@@ -245,12 +300,14 @@ export default function App() {
       return;
     }
 
+    const generatedEmail = `${regUsername.toLowerCase().trim()}@fcfunz.temp`;
+
     try {
       const p = await api.registerUser({
         username: regUsername,
         nome: regNome,
         sobrenome: regSobrenome,
-        email: regEmail,
+        email: generatedEmail,
         pais: regPais,
         sexo: regSexo,
         password: regPassword,
@@ -312,6 +369,43 @@ export default function App() {
             </div>
 
             <div className="p-6 sm:p-8">
+              {/* Painel de Status de Conexão com Supabase */}
+              <div className="mb-6 p-3 rounded-xl border bg-slate-950/40 text-[11px] space-y-1.5 border-slate-800">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 font-medium">
+                    <span className="text-slate-400 uppercase font-mono tracking-wider text-[10px]">Banco de Dados:</span>
+                    {supabaseActive ? (
+                      <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        Supabase Ativo
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-amber-400 font-semibold">
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                        Modo Local / Contingência
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-slate-500 font-mono text-[9px]">FCFUNZ v2.5</span>
+                </div>
+                
+                {supabaseActive ? (
+                  <p className="text-slate-400 leading-relaxed">
+                    Sua aplicação está sincronizada em tempo real com o banco de dados oficial do Supabase. Todos os cadastros e dados são persistentes.
+                  </p>
+                ) : (
+                  <p className="text-slate-400 leading-relaxed text-amber-400/90">
+                    O aplicativo está utilizando o armazenamento local temporário (localStorage). Seus dados serão mantidos localmente no seu navegador, pois não há credenciais de banco de dados ativas ou ocorreu erro na conexão.
+                  </p>
+                )}
+
+                {supabaseErrStr && (
+                  <div className="mt-2 p-2 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-[10px] leading-relaxed break-words font-sans">
+                    <strong>Alerta de Conexão:</strong> {supabaseErrStr}
+                  </div>
+                )}
+              </div>
+
               {authError && (
                 <div className="mb-4 bg-red-500/10 border border-red-500/20 rounded-xl p-3 flex items-center gap-2 text-xs text-red-400">
                   <AlertCircle className="h-4.5 w-4.5" />
@@ -366,7 +460,7 @@ export default function App() {
               ) : (
                 /* Register Screen (MÓDULO 1) */
                 <form onSubmit={handleRegister} className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4">
                     <div>
                       <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1.5">Username *</label>
                       <input
@@ -375,17 +469,6 @@ export default function App() {
                         value={regUsername}
                         onChange={(e) => setRegUsername(e.target.value)}
                         placeholder="Nome único de usuário"
-                        className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3.5 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1.5">Email *</label>
-                      <input
-                        type="email"
-                        required
-                        value={regEmail}
-                        onChange={(e) => setRegEmail(e.target.value)}
-                        placeholder="Seu email para contato"
                         className="w-full rounded-lg bg-slate-950 border border-slate-800 px-3.5 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none"
                       />
                     </div>
@@ -526,10 +609,18 @@ export default function App() {
             openPMWithUser={handleOpenPMWithUser} 
             onViewProfile={setSelectedProfileId}
             onLogout={handleLogout}
+            onOpenP2P={() => setIsP2POpen(true)}
+          />
+
+          <P2PModal 
+            isOpen={isP2POpen}
+            onClose={() => setIsP2POpen(false)}
+            currentUser={currentUser}
+            setActiveTab={setActiveTab}
           />
 
           {/* Tab Submenu Navigation Bar (MÓDULO DE INTERFACE) - DESKTOP ONLY */}
-          <nav className="w-full bg-slate-950/80 border-b border-slate-900 backdrop-blur-md sticky top-16 z-40 hidden lg:block overflow-x-auto scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
+          <nav className="w-full bg-slate-950/80 border-b border-slate-900 backdrop-blur-md sticky top-16 z-40 hidden lg:block overflow-x-auto no-scrollbar">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center space-x-1.5 py-3 shrink-0">
               <button
                 onClick={() => setActiveTab('social')}

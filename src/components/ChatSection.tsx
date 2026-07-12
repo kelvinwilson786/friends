@@ -841,7 +841,7 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
                     </div>
                     {/* Small compact subtitle beneath the group name */}
                     <span className="text-[10px] text-slate-500 font-mono tracking-tight -mt-0.5">
-                      {roomUsers.length} membros • {roomUsers.filter(u => u.id.startsWith('bot_') || Math.random() > 0.45).length} online
+                      {roomUsers.length} membros • {roomUsers.length} online
                     </span>
                   </div>
                 </div>

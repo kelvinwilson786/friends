@@ -21,7 +21,9 @@ import {
   Transaction,
   VaquinhaContribution,
   LeaderboardCompetition,
-  Anuncio
+  Anuncio,
+  P2POrder,
+  MerchantRate
 } from '../types';
 
 // Clean environment variable values (remove accidental quotes, trailing slashes, or appended subpaths like /rest/v1)
@@ -67,12 +69,405 @@ const rawSupabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta
 const supabaseUrl = cleanUrl(rawSupabaseUrl);
 const supabaseAnonKey = cleanKey(rawSupabaseAnonKey);
 
-// Check if we should use the real Supabase client
-export const isUsingRealSupabase = !!(supabaseUrl && supabaseAnonKey);
+const isPlaceholder = (val: string): boolean => {
+  const v = val.toLowerCase();
+  return (
+    v.includes('placeholder') ||
+    v.includes('your_') ||
+    v.includes('your-') ||
+    v.includes('todo') ||
+    v.includes('exemplo') ||
+    v.includes('example') ||
+    v.length < 5
+  );
+};
 
-export const realSupabase = isUsingRealSupabase 
-  ? createClient(supabaseUrl, supabaseAnonKey) 
-  : null;
+const isValidSupabaseUrl = supabaseUrl.startsWith('https://') && !isPlaceholder(supabaseUrl);
+const isValidSupabaseKey = supabaseAnonKey.length > 20 && !isPlaceholder(supabaseAnonKey);
+
+// Check if we should use the real Supabase client
+export let isUsingRealSupabase = !!(isValidSupabaseUrl && isValidSupabaseKey);
+export let supabaseError: string | null = null;
+export let realSupabase: any = null;
+
+export function handleSupabaseConnectionError(err: any) {
+  console.warn('FCFUNZ Supabase Connection Error (Handled):', err);
+  if (isUsingRealSupabase) {
+    console.warn('⚠️ Conexão com o Supabase falhou ou está indisponível. Ativando o modo de contingência local automaticamente...');
+    isUsingRealSupabase = false;
+    supabaseError = 'Não foi possível conectar ao banco de dados do Supabase. Ativando o modo de contingência local automaticamente.';
+    db.loadLocalDataFallback();
+    notifyUpdate();
+  }
+}
+
+if (isUsingRealSupabase) {
+  try {
+    realSupabase = createClient(supabaseUrl, supabaseAnonKey);
+    
+    // Install resilient wrappers for db calls to intercept "Failed to fetch" errors safely
+    if (realSupabase) {
+      const originalFrom = realSupabase.from;
+      realSupabase.from = function(relation: string) {
+        const queryBuilder = originalFrom.call(realSupabase, relation);
+        
+        const wrapBuilder = (builder: any): any => {
+          if (!builder) return builder;
+          
+          if (typeof builder.then === 'function' && !builder.__wrapped) {
+            const originalThen = builder.then;
+            builder.__wrapped = true;
+            builder.then = function(onfulfilled: any, onrejected: any) {
+              return originalThen.call(
+                this,
+                (res: any) => {
+                  if (res && res.error) {
+                    const msg = String(res.error.message || '').toLowerCase();
+                    if (msg.includes('failed to fetch') || msg.includes('network error') || msg.includes('load failed') || msg.includes('fetch') || msg.includes('cors')) {
+                      handleSupabaseConnectionError(res.error);
+                    }
+                  }
+                  return onfulfilled ? onfulfilled(res) : res;
+                },
+                (err: any) => {
+                  const msg = String(err?.message || err || '').toLowerCase();
+                  if (msg.includes('failed to fetch') || msg.includes('network error') || msg.includes('load failed') || msg.includes('fetch') || msg.includes('cors')) {
+                    handleSupabaseConnectionError(err);
+                    const fallbackRes = { data: null, error: err };
+                    return onfulfilled ? onfulfilled(fallbackRes) : fallbackRes;
+                  }
+                  if (onrejected) return onrejected(err);
+                  throw err;
+                }
+              );
+            };
+          }
+          
+          const methodsToWrap = [
+            'select', 'insert', 'update', 'upsert', 'delete', 'eq', 'neq', 'gt', 'lt',
+            'gte', 'lte', 'like', 'ilike', 'is', 'in', 'contains', 'containedBy',
+            'rangeLt', 'rangeGt', 'rangeGte', 'rangeLte', 'rangeAdjacent', 'overlaps',
+            'textSearch', 'match', 'not', 'or', 'filter', 'order', 'limit', 'range',
+            'single', 'maybeSingle', 'csv'
+          ];
+          
+          for (const method of methodsToWrap) {
+            if (typeof builder[method] === 'function' && !builder[method].__wrapped) {
+              const originalMethod = builder[method];
+              builder[method] = function(...mArgs: any[]) {
+                const nextBuilder = originalMethod.apply(this, mArgs);
+                return wrapBuilder(nextBuilder);
+              };
+              builder[method].__wrapped = true;
+            }
+          }
+          
+          return builder;
+        };
+        
+        return wrapBuilder(queryBuilder);
+      };
+
+      if (realSupabase.auth) {
+        const authMethods = ['getUser', 'getSession', 'signUp', 'signInWithPassword', 'signOut', 'onAuthStateChange'];
+        for (const method of authMethods) {
+          if (typeof realSupabase.auth[method] === 'function') {
+            const originalAuthMethod = realSupabase.auth[method];
+            realSupabase.auth[method] = function(...args: any[]) {
+              try {
+                const result = originalAuthMethod.apply(this, args);
+                if (result && typeof result.then === 'function') {
+                  return result.then(
+                    (res: any) => {
+                      if (res && res.error) {
+                        const msg = String(res.error.message || '').toLowerCase();
+                        if (msg.includes('failed to fetch') || msg.includes('network error') || msg.includes('load failed') || msg.includes('fetch') || msg.includes('cors')) {
+                          handleSupabaseConnectionError(res.error);
+                        }
+                      }
+                      return res;
+                    },
+                    (err: any) => {
+                      const msg = String(err?.message || err || '').toLowerCase();
+                      if (msg.includes('failed to fetch') || msg.includes('network error') || msg.includes('load failed') || msg.includes('fetch') || msg.includes('cors')) {
+                        handleSupabaseConnectionError(err);
+                        return { data: { user: null, session: null }, error: err };
+                      }
+                      throw err;
+                    }
+                  );
+                }
+                return result;
+              } catch (err: any) {
+                const msg = String(err?.message || err || '').toLowerCase();
+                if (msg.includes('failed to fetch') || msg.includes('network error') || msg.includes('load failed') || msg.includes('fetch') || msg.includes('cors')) {
+                  handleSupabaseConnectionError(err);
+                  return Promise.resolve({ data: { user: null, session: null }, error: err });
+                }
+                throw err;
+              }
+            };
+          }
+        }
+      }
+    }
+  } catch (err: any) {
+    console.warn('Failed to initialize or wrap Supabase client:', err);
+    isUsingRealSupabase = false;
+    realSupabase = null;
+    supabaseError = 'Erro ao inicializar o cliente do Supabase: ' + (err?.message || String(err));
+  }
+} else {
+  supabaseError = 'As credenciais do Supabase não estão configuradas nas variáveis de ambiente (.env). O aplicativo está rodando em modo Local Fallback (Local Storage).';
+}
+
+// Global unhandled promise rejection handler to prevent 'Failed to fetch' browser crashes
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', (event) => {
+    const errorMsg = String(event.reason?.message || event.reason || '').toLowerCase();
+    if (
+      errorMsg.includes('failed to fetch') ||
+      errorMsg.includes('network error') ||
+      errorMsg.includes('load failed') ||
+      errorMsg.includes('fetch') ||
+      errorMsg.includes('cors')
+    ) {
+      console.warn('⚠️ FCFUNZ: Global unhandled fetch/network rejection caught:', event.reason);
+      handleSupabaseConnectionError(event.reason);
+      event.preventDefault(); // Stop default browser error propagation
+    }
+  });
+}
+
+// Self-healing database adapters for profiles (handling missing columns like 'email')
+export let knownProfileColumns: Set<string> | null = null;
+export const blacklistedProfileColumns = new Set<string>();
+
+export const cleanProfilePayload = (profile: any): any => {
+  if (!profile) return profile;
+  const payload = { ...profile };
+  
+  // Remove blacklisted (confirmed non-existent) columns
+  for (const col of blacklistedProfileColumns) {
+    delete payload[col];
+  }
+  
+  // If we fetched actual schema columns, prune any keys that don't exist in the database table
+  if (knownProfileColumns) {
+    for (const key of Object.keys(payload)) {
+      if (!knownProfileColumns.has(key)) {
+        delete payload[key];
+      }
+    }
+  }
+  
+  return payload;
+};
+
+export const getMissingColumnFromError = (error: any): string | null => {
+  if (!error) return null;
+  const errorMsg = error.message || '';
+  const match = errorMsg.match(/Could not find the '([^']+)' column/i) || 
+                errorMsg.match(/column "([^"]+)" of relation "[^"]+" does not exist/i) ||
+                errorMsg.match(/column "([^"]+)" does not exist/i);
+  return match ? match[1] : null;
+};
+
+export const blacklistedTableColumns: { [tableName: string]: Set<string> } = {};
+
+export const cleanTablePayload = (tableName: string, record: any): any => {
+  if (!record) return record;
+  const payload = { ...record };
+  
+  if (tableName === 'profiles') {
+    return cleanProfilePayload(record);
+  }
+
+  if (tableName === 'mensagens') {
+    if (payload.targetBotId !== undefined) {
+      payload.targetbotid = payload.targetBotId;
+      delete payload.targetBotId;
+    }
+  }
+
+  if (!blacklistedTableColumns[tableName]) {
+    blacklistedTableColumns[tableName] = new Set<string>();
+  }
+  const blacklist = blacklistedTableColumns[tableName];
+  for (const col of blacklist) {
+    delete payload[col];
+  }
+  return payload;
+};
+
+export const safeUpsertTable = async (tableName: string, records: any[]): Promise<any> => {
+  if (!isUsingRealSupabase || !realSupabase) return records;
+  if (records.length === 0) return records;
+
+  if (tableName === 'profiles') {
+    return safeUpsertProfiles(records);
+  }
+
+  let attempt = 0;
+  while (attempt < 15) {
+    const payloads = records.map(r => cleanTablePayload(tableName, r));
+    const { data, error } = await realSupabase!.from(tableName).upsert(payloads).select();
+    if (error) {
+      console.warn(`FCFUNZ Upsert error for table ${tableName} on attempt ${attempt}:`, error);
+      const errorMsg = String(error.message || '').toLowerCase();
+      if (errorMsg.includes('failed to fetch') || errorMsg.includes('network error') || errorMsg.includes('load failed') || errorMsg.includes('fetch') || errorMsg.includes('cors')) {
+        handleSupabaseConnectionError(error);
+        return records;
+      }
+
+      const missing = getMissingColumnFromError(error);
+      if (missing) {
+        if (!blacklistedTableColumns[tableName]) {
+          blacklistedTableColumns[tableName] = new Set<string>();
+        }
+        blacklistedTableColumns[tableName].add(missing);
+        attempt++;
+        continue;
+      }
+      
+      console.warn(`FCFUNZ Bulk upsert failed for table ${tableName}, falling back to row-by-row upserts:`, error.message || error);
+      const results = [];
+      for (const r of records) {
+        try {
+          const payload = cleanTablePayload(tableName, r);
+          const { data: rowData, error: rowError } = await realSupabase!.from(tableName).upsert(payload).select().maybeSingle();
+          if (rowError) {
+            console.warn(`FCFUNZ Error upserting individual row into ${tableName}:`, rowError.message || rowError, payload);
+          } else {
+            results.push(rowData);
+          }
+        } catch (rowErr) {
+          console.warn(`FCFUNZ Exception upserting individual row into ${tableName}:`, rowErr);
+        }
+      }
+      return results;
+    }
+    return data;
+  }
+  console.warn(`FCFUNZ safeUpsertTable failed for ${tableName} after max attempts. Recovering gracefully...`);
+  return records;
+};
+
+export const safeInsertProfile = async (profile: any): Promise<any> => {
+  if (!isUsingRealSupabase) return profile;
+  let attempt = 0;
+  while (attempt < 15) {
+    const payload = cleanProfilePayload(profile);
+    const { data, error } = await realSupabase!.from('profiles').insert(payload).select().maybeSingle();
+    if (error) {
+      const errorMsg = String(error.message || '').toLowerCase();
+      if (errorMsg.includes('failed to fetch') || errorMsg.includes('network error') || errorMsg.includes('load failed') || errorMsg.includes('fetch') || errorMsg.includes('cors')) {
+        handleSupabaseConnectionError(error);
+        return profile;
+      }
+      const missing = getMissingColumnFromError(error);
+      if (missing) {
+        blacklistedProfileColumns.add(missing);
+        if (knownProfileColumns) knownProfileColumns.delete(missing);
+        attempt++;
+        continue;
+      }
+      throw error;
+    }
+    return data;
+  }
+  console.warn('Falha ao inserir perfil após remover colunas inexistentes. Prosseguindo de forma resiliente...');
+  return profile;
+};
+
+export const safeUpdateProfile = async (id: string, updates: any): Promise<any> => {
+  if (!isUsingRealSupabase) return updates;
+  let attempt = 0;
+  while (attempt < 15) {
+    const payload = cleanProfilePayload(updates);
+    const { data, error } = await realSupabase!.from('profiles').update(payload).eq('id', id).select().maybeSingle();
+    if (error) {
+      const errorMsg = String(error.message || '').toLowerCase();
+      if (errorMsg.includes('failed to fetch') || errorMsg.includes('network error') || errorMsg.includes('load failed') || errorMsg.includes('fetch') || errorMsg.includes('cors')) {
+        handleSupabaseConnectionError(error);
+        return updates;
+      }
+      const missing = getMissingColumnFromError(error);
+      if (missing) {
+        blacklistedProfileColumns.add(missing);
+        if (knownProfileColumns) knownProfileColumns.delete(missing);
+        attempt++;
+        continue;
+      }
+      throw error;
+    }
+    return data;
+  }
+  console.warn('Falha ao atualizar perfil após remover colunas inexistentes. Prosseguindo de forma resiliente...');
+  return updates;
+};
+
+export const safeUpsertSingleProfile = async (profile: any): Promise<any> => {
+  if (!isUsingRealSupabase) return profile;
+  let attempt = 0;
+  while (attempt < 15) {
+    const payload = cleanProfilePayload(profile);
+    const { data, error } = await realSupabase!.from('profiles').upsert(payload).select().maybeSingle();
+    if (error) {
+      const errorMsg = String(error.message || '').toLowerCase();
+      if (errorMsg.includes('failed to fetch') || errorMsg.includes('network error') || errorMsg.includes('load failed') || errorMsg.includes('fetch') || errorMsg.includes('cors')) {
+        handleSupabaseConnectionError(error);
+        return profile;
+      }
+      const missing = getMissingColumnFromError(error);
+      if (missing) {
+        blacklistedProfileColumns.add(missing);
+        if (knownProfileColumns) knownProfileColumns.delete(missing);
+        attempt++;
+        continue;
+      }
+      throw error;
+    }
+    return data;
+  }
+  console.warn('Falha ao realizar upsert de perfil após remover colunas inexistentes. Prosseguindo de forma resiliente...');
+  return profile;
+};
+
+export const safeUpsertProfiles = async (profiles: any[]): Promise<any> => {
+  if (!isUsingRealSupabase) return profiles;
+  let attempt = 0;
+  let payloads = profiles.map(p => cleanProfilePayload(p));
+  while (attempt < 15) {
+    const { data, error } = await realSupabase!.from('profiles').upsert(payloads).select();
+    if (error) {
+      const errorMsg = String(error.message || '').toLowerCase();
+      if (errorMsg.includes('failed to fetch') || errorMsg.includes('network error') || errorMsg.includes('load failed') || errorMsg.includes('fetch') || errorMsg.includes('cors')) {
+        handleSupabaseConnectionError(error);
+        return profiles;
+      }
+      const missing = getMissingColumnFromError(error);
+      if (missing) {
+        blacklistedProfileColumns.add(missing);
+        if (knownProfileColumns) knownProfileColumns.delete(missing);
+        payloads = profiles.map(p => cleanProfilePayload(p));
+        attempt++;
+        continue;
+      }
+      // If any other bulk upsert error occurs, fall back to individual safe upsert
+      console.warn("Bulk upsert failed, executing single-row upserts safely:", error);
+      const results = [];
+      for (const p of profiles) {
+        const res = await safeUpsertSingleProfile(p);
+        results.push(res);
+      }
+      return results;
+    }
+    return data;
+  }
+  console.warn('Falha ao realizar upsert em lote de perfis após remover colunas inexistentes. Prosseguindo de forma resiliente...');
+  return profiles;
+};
 
 // ==========================================
 // HIGH-FIDELITY LOCAL STATE FALLBACK ENGINE
@@ -518,6 +913,174 @@ const saveToStorage = <T>(key: string, value: T): void => {
   localStorage.setItem(`fcfunz_${key}`, JSON.stringify(value));
 };
 
+export const BOT_PROFILES_STATIC_LIST: Profile[] = [
+  {
+    id: 'bot_u_mari',
+    username: 'Mari_Social',
+    nome: 'Mariana',
+    sobrenome: 'Silva',
+    avatar_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
+    cargo: 'Verified User',
+    pais: 'MZ',
+    sexo: 'M',
+    nivel: 10,
+    xp: 1500,
+    credits: 1000,
+    bonus: 0,
+    points: 500,
+    mpoint: 50,
+    criado_em: '2026-01-01T00:00:00.000Z',
+    online_points: 0,
+    black_diamonds: 0,
+    last_level_up_at: '2026-01-01T00:00:00.000Z',
+    password: '123',
+    security_question: 'Qual o nome do seu primeiro animal de estimação?',
+    security_answer: 'Rex',
+    merchant_pin: '1234'
+  },
+  {
+    id: 'bot_u_lucas',
+    username: 'LucasCurioso',
+    nome: 'Lucas',
+    sobrenome: 'Matusse',
+    avatar_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150',
+    cargo: 'Verified User',
+    pais: 'MZ',
+    sexo: 'M',
+    nivel: 10,
+    xp: 1500,
+    credits: 1000,
+    bonus: 0,
+    points: 500,
+    mpoint: 50,
+    criado_em: '2026-01-01T00:00:00.000Z',
+    online_points: 0,
+    black_diamonds: 0,
+    last_level_up_at: '2026-01-01T00:00:00.000Z',
+    password: '123',
+    security_question: 'Qual o nome do seu primeiro animal de estimação?',
+    security_answer: 'Rex',
+    merchant_pin: '1234'
+  },
+  {
+    id: 'bot_u_gamerx',
+    username: 'GamerX_MZ',
+    nome: 'Nélio',
+    sobrenome: 'Chambone',
+    avatar_url: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+    cargo: 'Verified User',
+    pais: 'MZ',
+    sexo: 'M',
+    nivel: 10,
+    xp: 1500,
+    credits: 1000,
+    bonus: 0,
+    points: 500,
+    mpoint: 50,
+    criado_em: '2026-01-01T00:00:00.000Z',
+    online_points: 0,
+    black_diamonds: 0,
+    last_level_up_at: '2026-01-01T00:00:00.000Z',
+    password: '123',
+    security_question: 'Qual o nome do seu primeiro animal de estimação?',
+    security_answer: 'Rex',
+    merchant_pin: '1234'
+  },
+  {
+    id: 'bot_u_ajudante',
+    username: 'Guia_FCFUNZ',
+    nome: 'Ajudante',
+    sobrenome: 'Oficial',
+    avatar_url: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150',
+    cargo: 'Guide',
+    pais: 'MZ',
+    sexo: 'M',
+    nivel: 10,
+    xp: 1500,
+    credits: 1000,
+    bonus: 0,
+    points: 500,
+    mpoint: 50,
+    criado_em: '2026-01-01T00:00:00.000Z',
+    online_points: 0,
+    black_diamonds: 0,
+    last_level_up_at: '2026-01-01T00:00:00.000Z',
+    password: '123',
+    security_question: 'Qual o nome do seu primeiro animal de estimação?',
+    security_answer: 'Rex',
+    merchant_pin: '1234'
+  },
+  {
+    id: 'bot_u_timida',
+    username: 'Bela_Timida',
+    nome: 'Anabela',
+    sobrenome: 'Macuacua',
+    avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+    cargo: 'Unverified User',
+    pais: 'MZ',
+    sexo: 'M',
+    nivel: 10,
+    xp: 1500,
+    credits: 1000,
+    bonus: 0,
+    points: 500,
+    mpoint: 50,
+    criado_em: '2026-01-01T00:00:00.000Z',
+    online_points: 0,
+    black_diamonds: 0,
+    last_level_up_at: '2026-01-01T00:00:00.000Z',
+    password: '123',
+    security_question: 'Qual o nome do seu primeiro animal de estimação?',
+    security_answer: 'Rex',
+    merchant_pin: '1234'
+  },
+  {
+    id: 'bot_u_prestigio',
+    username: 'Prestigio_Bot',
+    nome: 'Rei',
+    sobrenome: 'Do_Papo',
+    avatar_url: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150',
+    cargo: 'Super Merchant',
+    pais: 'MZ',
+    sexo: 'M',
+    nivel: 10,
+    xp: 1500,
+    credits: 1000,
+    bonus: 0,
+    points: 500,
+    mpoint: 50,
+    criado_em: '2026-01-01T00:00:00.000Z',
+    online_points: 0,
+    black_diamonds: 0,
+    last_level_up_at: '2026-01-01T00:00:00.000Z',
+    password: '123',
+    security_question: 'Qual o nome do seu primeiro animal de estimação?',
+    security_answer: 'Rex',
+    merchant_pin: '1234'
+  },
+];
+
+export const getBotProfile = (id: string): Profile | null => {
+  return BOT_PROFILES_STATIC_LIST.find(b => b.id === id) || null;
+};
+
+function recordsEqual(r1: any, r2: any): boolean {
+  if (!r1 || !r2) return false;
+  const keys = new Set([...Object.keys(r1), ...Object.keys(r2)]);
+  for (const k of keys) {
+    if (typeof r1[k] === 'function' || typeof r2[k] === 'function') continue;
+    const v1 = r1[k];
+    const v2 = r2[k];
+    if (v1 === v2) continue;
+    if (typeof v1 === 'object' || typeof v2 === 'object') {
+      if (JSON.stringify(v1) !== JSON.stringify(v2)) return false;
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
 // Simulated Local Database State
 class LocalDB {
   profiles: Profile[] = [];
@@ -540,12 +1103,102 @@ class LocalDB {
   vaquinhaContributions: VaquinhaContribution[] = [];
   competitions: LeaderboardCompetition[] = [];
   anuncios: Anuncio[] = [];
+  p2pOrders: P2POrder[] = [];
+  merchantRates: MerchantRate[] = [];
   credits_responsible_user_id: string = 'u1';
   credits_responsible_phone: string = '870870059';
   activeUserId: string = 'u1'; // Default logged in as Kelvin
 
+  lastSyncedState: { [key: string]: any[] } = {};
+  isPushingSync: boolean = false;
+  hasPendingChanges: boolean = false;
+
+  ensureBotProfiles() {
+    BOT_PROFILES_STATIC_LIST.forEach(botProfile => {
+      const exists = this.profiles.some(p => p.id === botProfile.id);
+      if (!exists) {
+        this.profiles.push(botProfile);
+      }
+    });
+  }
+
+  updateLastSyncedState() {
+    this.lastSyncedState = {
+      profiles: JSON.parse(JSON.stringify(this.profiles)),
+      salas: JSON.parse(JSON.stringify(this.salas)),
+      mensagens: JSON.parse(JSON.stringify(this.mensagens)),
+      tweets: JSON.parse(JSON.stringify(this.tweets)),
+      comments: JSON.parse(JSON.stringify(this.comments)),
+      amizades: JSON.parse(JSON.stringify(this.amizades)),
+      mensagensPrivadas: JSON.parse(JSON.stringify(this.mensagensPrivadas)),
+      apolloCodes: JSON.parse(JSON.stringify(this.apolloCodes)),
+      notifications: JSON.parse(JSON.stringify(this.notifications)),
+      diceGames: JSON.parse(JSON.stringify(this.diceGames)),
+      transactions: JSON.parse(JSON.stringify(this.transactions)),
+      vaquinhaContributions: JSON.parse(JSON.stringify(this.vaquinhaContributions)),
+      competitions: JSON.parse(JSON.stringify(this.competitions)),
+      anuncios: JSON.parse(JSON.stringify(this.anuncios))
+    };
+  }
+
+  async syncDirtyToSupabase() {
+    if (!isUsingRealSupabase || !realSupabase) return;
+    if (this.isPushingSync) {
+      this.hasPendingChanges = true;
+      return;
+    }
+    this.isPushingSync = true;
+    
+    try {
+      const tableConfig = [
+        { key: 'profiles', array: this.profiles, tableName: 'profiles' },
+        { key: 'salas', array: this.salas, tableName: 'salas' },
+        { key: 'mensagens', array: this.mensagens, tableName: 'mensagens' },
+        { key: 'tweets', array: this.tweets, tableName: 'tweets' },
+        { key: 'comments', array: this.comments, tableName: 'comments' },
+        { key: 'amizades', array: this.amizades, tableName: 'amizades' },
+        { key: 'mensagensPrivadas', array: this.mensagensPrivadas, tableName: 'mensagens_privadas' },
+        { key: 'apolloCodes', array: this.apolloCodes, tableName: 'apollo_codes' },
+        { key: 'notifications', array: this.notifications, tableName: 'notifications' },
+        { key: 'diceGames', array: this.diceGames, tableName: 'dice_games' },
+        { key: 'transactions', array: this.transactions, tableName: 'transactions' },
+        { key: 'vaquinhaContributions', array: this.vaquinhaContributions, tableName: 'vaquinha_contributions' },
+        { key: 'competitions', array: this.competitions, tableName: 'competitions' },
+        { key: 'anuncios', array: this.anuncios, tableName: 'anuncios' }
+      ];
+
+      for (const config of tableConfig) {
+        const currentArray = config.array;
+        const lastSyncedArray = this.lastSyncedState[config.key] || [];
+
+        const dirtyRecords = [];
+        for (const currentRecord of currentArray) {
+          const syncedRecord = lastSyncedArray.find((r: any) => r.id === currentRecord.id);
+          if (!syncedRecord || !recordsEqual(currentRecord, syncedRecord)) {
+            dirtyRecords.push(currentRecord);
+          }
+        }
+
+        if (dirtyRecords.length > 0) {
+          await safeUpsertTable(config.tableName, dirtyRecords);
+          this.lastSyncedState[config.key] = JSON.parse(JSON.stringify(currentArray));
+        }
+      }
+    } catch (err) {
+      console.warn('FCFUNZ Error in syncDirtyToSupabase:', err);
+    } finally {
+      this.isPushingSync = false;
+      if (this.hasPendingChanges) {
+        this.hasPendingChanges = false;
+        setTimeout(() => this.syncDirtyToSupabase(), 300);
+      }
+    }
+  }
+
   constructor() {
     this.profiles = loadFromStorage('profiles', SEED_PROFILES);
+    this.ensureBotProfiles();
+    this.updateLastSyncedState();
     // Initialize required progression fields if missing
     for (const p of this.profiles) {
       if (p.online_points === undefined) p.online_points = 0;
@@ -581,6 +1234,12 @@ class LocalDB {
     this.vaquinhaContributions = loadFromStorage('vaquinha_contributions', SEED_VAQUINHA);
     this.competitions = loadFromStorage('competitions', []);
     this.anuncios = loadFromStorage('anuncios', SEED_ANUNCIOS);
+    this.p2pOrders = loadFromStorage('p2p_orders', []);
+    this.merchantRates = loadFromStorage('merchant_rates', [
+      { merchant_id: 'u1', rate: 1.20 },
+      { merchant_id: 'u3', rate: 1.25 },
+      { merchant_id: 'u2', rate: 1.15 }
+    ]);
     
     this.credits_responsible_user_id = localStorage.getItem('fcfunz_credits_resp_user') || 'u1';
     this.credits_responsible_phone = localStorage.getItem('fcfunz_credits_resp_phone') || '870870059';
@@ -605,8 +1264,12 @@ class LocalDB {
           this.syncFromSupabase().then(() => {
             // Trigger update listeners so the UI re-renders with Supabase remote updates
             updateListeners.forEach(cb => cb());
+          }).catch(err => {
+            handleSupabaseConnectionError(err);
           });
         }, 20000);
+      }).catch(err => {
+        handleSupabaseConnectionError(err);
       });
     }
   }
@@ -630,8 +1293,11 @@ class LocalDB {
       }
     }
     if (isUsingRealSupabase && realSupabase) {
-      const { error } = await realSupabase.from('profiles').update(updates).eq('id', userId);
-      if (error) console.error(`Error updating profile ${userId}:`, error);
+      try {
+        await safeUpdateProfile(userId, updates);
+      } catch (error) {
+        console.warn(`Error updating profile ${userId}:`, error);
+      }
     }
     notifyUpdate();
   }
@@ -702,11 +1368,15 @@ class LocalDB {
     switch (table) {
       case 'profiles':
         updateLocalArray(this.profiles);
+        this.ensureBotProfiles();
         break;
       case 'salas':
         updateLocalArray(this.salas);
         break;
       case 'mensagens': {
+        if (newRecord) {
+          newRecord.targetBotId = newRecord.targetbotid !== undefined ? newRecord.targetbotid : newRecord.targetBotId;
+        }
         updateLocalArray(this.mensagens);
         if (eventType === 'INSERT') {
           const listeners = chatListeners.get(newRecord.sala_id);
@@ -806,11 +1476,19 @@ class LocalDB {
     try {
       // 1. Fetch profiles
       const { data: profilesData, error: profilesError } = await realSupabase!.from('profiles').select('*');
+      if (profilesError) {
+        const pMsg = String(profilesError.message || '').toLowerCase();
+        if (pMsg.includes('failed to fetch') || pMsg.includes('load failed') || pMsg.includes('networkerror') || pMsg.includes('cors') || pMsg.includes('network error') || pMsg.includes('fetch')) {
+          throw new Error('Failed to fetch');
+        }
+      }
       if (!profilesError && profilesData) {
         if (profilesData.length > 0) {
+          knownProfileColumns = new Set(Object.keys(profilesData[0]));
           this.profiles = profilesData as Profile[];
+          this.ensureBotProfiles();
         } else {
-          await realSupabase!.from('profiles').insert(SEED_PROFILES);
+          await safeUpsertProfiles(SEED_PROFILES);
         }
       }
 
@@ -827,7 +1505,10 @@ class LocalDB {
       // 3. Fetch mensagens
       const { data: mensagensData, error: msgError } = await realSupabase!.from('mensagens').select('*');
       if (!msgError && mensagensData) {
-        this.mensagens = mensagensData as Mensagem[];
+        this.mensagens = (mensagensData as any[]).map(m => ({
+          ...m,
+          targetBotId: m.targetbotid !== undefined ? m.targetbotid : m.targetBotId
+        })) as Mensagem[];
       }
 
       // 4. Fetch tweets
@@ -960,8 +1641,17 @@ class LocalDB {
         if (respUser) this.credits_responsible_user_id = respUser.value;
         if (respPhone) this.credits_responsible_phone = respPhone.value;
       }
-    } catch (err) {
-      console.error('FCFUNZ Error pulling sync from Supabase:', err);
+      this.updateLastSyncedState();
+      supabaseError = null;
+    } catch (err: any) {
+      console.warn('FCFUNZ Error pulling sync from Supabase:', err);
+      supabaseError = err?.message || String(err);
+      if (isUsingRealSupabase) {
+        console.warn('⚠️ Conexão ou sincronização com o Supabase falhou. Ativando o modo de contingência local automaticamente...');
+        isUsingRealSupabase = false;
+        this.loadLocalDataFallback();
+        notifyUpdate();
+      }
     } finally {
       this.isSyncing = false;
     }
@@ -971,7 +1661,7 @@ class LocalDB {
     if (!isUsingRealSupabase) return;
     try {
       const promises: any[] = [
-        realSupabase!.from('profiles').upsert(this.profiles),
+        safeUpsertProfiles(this.profiles),
         realSupabase!.from('salas').upsert(this.salas),
         realSupabase!.from('mensagens').upsert(this.mensagens),
         realSupabase!.from('tweets').upsert(this.tweets),
@@ -1003,7 +1693,8 @@ class LocalDB {
 
       await Promise.all(promises);
     } catch (err) {
-      console.error('FCFUNZ Error pushing sync to Supabase:', err);
+      console.warn('FCFUNZ Error pushing sync to Supabase:', err);
+      handleSupabaseConnectionError(err);
     }
   }
 
@@ -1075,13 +1766,41 @@ class LocalDB {
     saveToStorage('vaquinha_contributions', this.vaquinhaContributions);
     saveToStorage('competitions', this.competitions);
     saveToStorage('anuncios', this.anuncios);
+    saveToStorage('p2p_orders', this.p2pOrders);
+    saveToStorage('merchant_rates', this.merchantRates);
     localStorage.setItem('fcfunz_credits_resp_user', this.credits_responsible_user_id);
     localStorage.setItem('fcfunz_credits_resp_phone', this.credits_responsible_phone);
 
     // Sync changes to Supabase in the background!
     if (isUsingRealSupabase) {
-      // Direct, granular writes are performed on change, so bulk upserting is avoided to prevent concurrency issues.
+      this.syncDirtyToSupabase().catch(err => {
+        console.warn('FCFUNZ Error in background syncDirtyToSupabase:', err);
+      });
     }
+  }
+
+  loadLocalDataFallback() {
+    this.profiles = loadFromStorage('profiles', SEED_PROFILES);
+    this.ensureBotProfiles();
+    this.salas = loadFromStorage('salas', SEED_SALAS);
+    this.mensagens = loadFromStorage('mensagens', SEED_MENSAGENS);
+    this.tweets = loadFromStorage('tweets', SEED_TWEETS);
+    this.comments = loadFromStorage('comments', SEED_COMMENTS);
+    this.amizades = loadFromStorage('amizades', SEED_AMIZADES);
+    this.mensagensPrivadas = loadFromStorage('mensagens_privadas', SEED_PRIVATEMSGS);
+    this.apolloCodes = loadFromStorage('apollo_codes', SEED_CODES);
+    this.notifications = loadFromStorage('notifications', []);
+    this.diceGames = loadFromStorage('dice_games', []);
+    this.transactions = loadFromStorage('transactions', SEED_TRANSACTIONS);
+    this.banned_global = loadFromStorage('banned_global', []);
+    this.room_kicks = loadFromStorage('room_kicks', []);
+    this.room_bans = loadFromStorage('room_bans', []);
+    this.group_bans = loadFromStorage('group_bans', []);
+    this.favorites = loadFromStorage('favorites', []);
+    this.room_participants = loadFromStorage('room_participants', []);
+    this.vaquinhaContributions = loadFromStorage('vaquinha_contributions', SEED_VAQUINHA);
+    this.competitions = loadFromStorage('competitions', []);
+    this.anuncios = loadFromStorage('anuncios', SEED_ANUNCIOS);
   }
 
   getActiveProfile(): Profile {
@@ -1152,57 +1871,168 @@ export const subscribeToGlobalUpdates = (cb: ActionCallback) => {
 // ==========================================
 
 export const api = {
+  // --- P2P TRANSACTIONS ---
+  getP2POrders: async (): Promise<P2POrder[]> => {
+    return db.p2pOrders;
+  },
+  createP2POrder: async (order: Omit<P2POrder, 'id' | 'created_at' | 'status'>): Promise<P2POrder> => {
+    const newOrder: P2POrder = {
+      ...order,
+      id: 'p2p_' + Math.random().toString(36).substr(2, 9),
+      created_at: new Date().toISOString(),
+      status: 'pending'
+    };
+    db.p2pOrders.push(newOrder);
+    
+    // If it's a withdrawal, subtract credits from the user immediately
+    if (order.type === 'withdrawal') {
+      const uIdx = db.profiles.findIndex(p => p.id === order.buyer_id);
+      if (uIdx !== -1) {
+        db.profiles[uIdx].credits = Math.max(0, (db.profiles[uIdx].credits || 0) - order.amount_mzn);
+        db.profiles[uIdx].last_withdrawal_at = new Date().toISOString();
+      }
+    }
+
+    db.save();
+    notifyUpdate();
+    return newOrder;
+  },
+  updateP2POrderStatus: async (orderId: string, status: P2POrder['status']): Promise<P2POrder> => {
+    const orderIdx = db.p2pOrders.findIndex(o => o.id === orderId);
+    if (orderIdx === -1) throw new Error('Ordem P2P não encontrada.');
+    const order = db.p2pOrders[orderIdx];
+    const oldStatus = order.status;
+    order.status = status;
+    if (status === 'completed') {
+      order.completed_at = new Date().toISOString();
+      // If it was a deposit, add credits to the buyer now!
+      if (order.type === 'deposit') {
+        const uIdx = db.profiles.findIndex(p => p.id === order.buyer_id);
+        if (uIdx !== -1) {
+          db.profiles[uIdx].credits = (db.profiles[uIdx].credits || 0) + order.amount_mzn;
+          
+          // Trigger a beautiful notification
+          await api.addNotification({
+            usuario_id: order.buyer_id,
+            title: '💸 Créditos P2P Liberados!',
+            message: `Sua compra de ${order.amount_mzn} MZN de @${order.merchant_username} foi liberada com sucesso! Seus créditos já estão disponíveis. 🎉`,
+            type: 'system',
+            sender_id: 'system',
+            sender_username: 'Sistema FCFUNZ'
+          });
+        }
+      } else if (order.type === 'withdrawal') {
+        // Withdrawal completed by merchant/admin! Trigger notification to user
+        await api.addNotification({
+          usuario_id: order.buyer_id,
+          title: '✅ Levantamento Pago!',
+          message: `Seu levantamento de ${order.amount_mzn} MZN foi pago via e-Mola para o número ${order.withdrawal_phone}! Verifique sua carteira. 📱`,
+          type: 'system',
+          sender_id: 'system',
+          sender_username: 'Sistema FCFUNZ'
+        });
+      }
+    } else if (status === 'rejected') {
+      // If a withdrawal is rejected, refund the user's credits!
+      if (order.type === 'withdrawal' && oldStatus === 'pending') {
+        const uIdx = db.profiles.findIndex(p => p.id === order.buyer_id);
+        if (uIdx !== -1) {
+          db.profiles[uIdx].credits = (db.profiles[uIdx].credits || 0) + order.amount_mzn;
+          // Clear last withdrawal limit so they can retry
+          delete db.profiles[uIdx].last_withdrawal_at;
+          
+          await api.addNotification({
+            usuario_id: order.buyer_id,
+            title: '❌ Levantamento Rejeitado',
+            message: `Seu pedido de levantamento de ${order.amount_mzn} MZN foi recusado. Seus créditos de ${order.amount_mzn} MZN foram estornados.`,
+            type: 'system',
+            sender_id: 'system',
+            sender_username: 'Sistema FCFUNZ'
+          });
+        }
+      }
+    } else if (status === 'disputed') {
+      // Put in dispute, trigger notification to both parties
+      await api.addNotification({
+        usuario_id: order.buyer_id,
+        title: '⚠️ Ordem em Disputa',
+        message: `Sua ordem P2P de ${order.amount_mzn} MZN com @${order.merchant_username} entrou em disputa e está sob análise da Administração.`,
+        type: 'system',
+        sender_id: 'system',
+        sender_username: 'Sistema FCFUNZ'
+      });
+    }
+
+    db.save();
+    notifyUpdate();
+    return order;
+  },
+  getMerchantRates: async (): Promise<MerchantRate[]> => {
+    return db.merchantRates;
+  },
+  updateMerchantRate: async (merchantId: string, rate: number): Promise<void> => {
+    const idx = db.merchantRates.findIndex(m => m.merchant_id === merchantId);
+    if (idx !== -1) {
+      db.merchantRates[idx].rate = rate;
+    } else {
+      db.merchantRates.push({ merchant_id: merchantId, rate });
+    }
+    
+    // Also save rate in merchant's profile directly
+    const uIdx = db.profiles.findIndex(p => p.id === merchantId);
+    if (uIdx !== -1) {
+      db.profiles[uIdx].merchant_rate_sell = rate;
+    }
+
+    db.save();
+    notifyUpdate();
+  },
+
   // --- AUTH / PROFILE ---
   getCurrentUser: async (): Promise<Profile> => {
     if (isUsingRealSupabase) {
-      const { data: { user } } = await realSupabase!.auth.getUser();
-      if (user) {
-        const { data } = await realSupabase!.from('profiles').select('*').eq('id', user.id).single();
-        if (data) {
-          db.setActiveUser(data.id);
-          return data as Profile;
+      try {
+        const { data: { user } } = await realSupabase!.auth.getUser();
+        if (user) {
+          const { data } = await realSupabase!.from('profiles').select('*').eq('id', user.id).single();
+          if (data) {
+            db.setActiveUser(data.id);
+            return data as Profile;
+          }
         }
+      } catch (err: any) {
+        const msg = String(err.message || err || '').toLowerCase();
+        if (msg.includes('failed to fetch') || msg.includes('network error') || msg.includes('load failed') || msg.includes('fetch') || msg.includes('cors')) {
+          handleSupabaseConnectionError(err);
+          return db.getActiveProfile();
+        }
+        handleSupabaseConnectionError(err);
       }
+      return null as any; // Return null instead of falling back to default local profile
     }
     return db.getActiveProfile();
   },
 
   getAllUsers: async (): Promise<Profile[]> => {
     if (isUsingRealSupabase) {
-      const { data } = await realSupabase!.from('profiles').select('*');
-      if (data) return data as Profile[];
+      try {
+        const { data } = await realSupabase!.from('profiles').select('*');
+        if (data) return data as Profile[];
+      } catch (err: any) {
+        const msg = String(err.message || err || '').toLowerCase();
+        if (msg.includes('failed to fetch') || msg.includes('network error') || msg.includes('load failed') || msg.includes('fetch') || msg.includes('cors')) {
+          handleSupabaseConnectionError(err);
+        } else {
+          handleSupabaseConnectionError(err);
+        }
+      }
     }
     return db.profiles;
   },
 
   updateProfile: async (id: string, updates: Partial<Profile>): Promise<Profile> => {
-    if (isUsingRealSupabase) {
-      const { data, error } = await realSupabase!.from('profiles').update(updates).eq('id', id).select().single();
-      if (error) throw error;
-      return data as Profile;
-    }
-    const idx = db.profiles.findIndex(p => p.id === id);
-    if (idx !== -1) {
-      const oldCargo = db.profiles[idx].cargo;
-      db.profiles[idx] = { ...db.profiles[idx], ...updates } as Profile;
-      const newCargo = db.profiles[idx].cargo;
-
-      // If cargo changed, notify the user immediately!
-      if (updates.cargo && oldCargo !== newCargo) {
-        await api.addNotification({
-          usuario_id: id,
-          title: '🎖️ Cargo Atualizado!',
-          message: `Seu cargo de usuário foi alterado de "${oldCargo}" para o cargo especial de "${newCargo}"! Parabéns! 🎉`,
-          type: 'system',
-          sender_id: 'system',
-          sender_username: 'Sistema FCFUNZ'
-        });
-      }
-
-      notifyUpdate();
-      return db.profiles[idx];
-    }
-    throw new Error('User not found');
+    await db.updateProfile(id, updates);
+    return db.profiles.find(p => p.id === id)!;
   },
 
   registerUser: async (fields: {
@@ -1215,39 +2045,80 @@ export const api = {
     password?: string;
   }): Promise<Profile> => {
     if (isUsingRealSupabase) {
-      const { data: signUpData, error: signUpError } = await realSupabase!.auth.signUp({
-        email: fields.email,
-        password: fields.password || '123',
-      });
-      if (signUpError) throw signUpError;
-      if (!signUpData.user) throw new Error('Erro ao criar conta no Supabase Auth.');
+      try {
+        const { data: signUpData, error: signUpError } = await realSupabase!.auth.signUp({
+          email: fields.email,
+          password: fields.password || '123',
+        });
+        if (signUpError) {
+          throw signUpError;
+        }
+        if (!signUpData.user) throw new Error('Erro ao criar conta no Supabase Auth.');
 
-      const newProfile: Profile = {
-        id: signUpData.user.id,
-        username: fields.username,
-        nome: fields.nome,
-        sobrenome: fields.sobrenome,
-        email: fields.email,
-        pais: fields.pais || 'BR',
-        sexo: fields.sexo || 'M',
-        avatar_url: `https://api.dicebear.com/7.x/adventurer/svg?seed=${fields.username}`,
-        cargo: 'Unverified User',
-        nivel: 1,
-        xp: 0,
-        credits: 100,
-        bonus: 0,
-        points: 0,
-        criado_em: new Date().toISOString(),
-        password: fields.password || '123',
-      };
+        const newProfile: Profile = {
+          id: signUpData.user.id,
+          username: fields.username,
+          nome: fields.nome,
+          sobrenome: fields.sobrenome,
+          email: fields.email,
+          pais: fields.pais || 'BR',
+          sexo: fields.sexo || 'M',
+          avatar_url: `https://api.dicebear.com/7.x/adventurer/svg?seed=${fields.username}`,
+          cargo: 'Unverified User',
+          nivel: 1,
+          xp: 0,
+          credits: 100,
+          bonus: 0,
+          points: 0,
+          criado_em: new Date().toISOString(),
+          password: fields.password || '123',
+        };
 
-      const { error: insertError } = await realSupabase!.from('profiles').insert(newProfile);
-      if (insertError) throw insertError;
+        await safeInsertProfile(newProfile);
+        
+        db.profiles.push(newProfile);
+        db.setActiveUser(newProfile.id);
+        notifyUpdate();
+        return newProfile;
+      } catch (err: any) {
+        const msg = String(err.message || err || '').toLowerCase();
+        if (msg.includes('failed to fetch') || msg.includes('network error') || msg.includes('load failed') || msg.includes('fetch') || msg.includes('cors')) {
+          handleSupabaseConnectionError(err);
+          // Fall through to local registration!
+          const newProfile: Profile = {
+            id: 'u_' + Math.random().toString(36).substr(2, 9),
+            username: fields.username,
+            nome: fields.nome,
+            sobrenome: fields.sobrenome,
+            email: fields.email,
+            pais: fields.pais || 'MZ',
+            sexo: fields.sexo || 'M',
+            avatar_url: `https://api.dicebear.com/7.x/adventurer/svg?seed=${fields.username}`,
+            cargo: 'Unverified User',
+            nivel: 1,
+            xp: 0,
+            credits: 100,
+            bonus: 0,
+            points: 0,
+            criado_em: new Date().toISOString(),
+            password: fields.password || '123',
+          };
 
-      db.profiles.push(newProfile);
-      db.setActiveUser(newProfile.id);
-      notifyUpdate();
-      return newProfile;
+          db.profiles.push(newProfile);
+          db.setActiveUser(newProfile.id);
+          notifyUpdate();
+          return newProfile;
+        } else {
+          const errMsg = err.message || '';
+          if (errMsg.toLowerCase().includes('rate limit') || errMsg.toLowerCase().includes('limit exceeded') || err.status === 429) {
+            throw new Error('Limite de requisições (Rate Limit) do Supabase excedido. DICA: No painel do seu Supabase, vá em "Authentication" -> "Rate Limits" e aumente ou desative temporariamente os limites de "Sign Up" (Cadastro por hora/IP) para continuar criando contas de teste.');
+          }
+          if (errMsg.toLowerCase().includes('email logins are disabled') || errMsg.toLowerCase().includes('logins are disabled') || errMsg.toLowerCase().includes('provider is disabled')) {
+            throw new Error('ATENÇÃO: O login por E-mail está desativado no seu projeto Supabase. DICA: Vá no painel do seu Supabase, em "Authentication" -> "Providers" -> "Email", ATIVE a opção principal "Enable Email provider", salve, e certifique-se de que APENAS a opção "Confirm email" (Confirmar e-mail) está desativada para não exigir links de confirmação por e-mail.');
+          }
+          throw err;
+        }
+      }
     }
 
     const newProfile: Profile = {
@@ -1283,36 +2154,112 @@ export const api = {
 
   signInUser: async (usernameOrEmail: string, password?: string): Promise<Profile> => {
     if (isUsingRealSupabase) {
-      let email = usernameOrEmail.trim();
-      if (!email.includes('@')) {
-        const { data: profileData, error: profileError } = await realSupabase!.from('profiles')
-          .select('email')
-          .ilike('username', email)
-          .maybeSingle();
-        if (profileError || !profileData || !profileData.email) {
-          throw new Error('Nome de usuário não encontrado ou sem e-mail associado.');
+      try {
+        let email = usernameOrEmail.trim();
+        if (!email.includes('@')) {
+          // Query using select('*') so it doesn't fail if the 'email' column does not exist on the 'profiles' table
+          const { data: profileData, error: profileError } = await realSupabase!.from('profiles')
+            .select('*')
+            .ilike('username', email)
+            .maybeSingle();
+          if (profileError) throw profileError;
+          
+          if (!profileData) {
+            // Username not found in real Supabase. Let's see if they are a seed user locally!
+            const localUser = db.profiles.find(p => p.username.toLowerCase() === email.toLowerCase());
+            if (localUser) {
+              try {
+                // Try to auto-signup this seed user so they exist in real Supabase
+                const { data: signUpData, error: signUpError } = await realSupabase!.auth.signUp({
+                  email: localUser.email || `${localUser.username.toLowerCase()}@fcfunz.temp`,
+                  password: password || '123',
+                });
+                if (!signUpError && signUpData.user) {
+                  localUser.id = signUpData.user.id;
+                  await safeInsertProfile(localUser);
+                  // Sign in now
+                  const { data: signInData, error: signInError } = await realSupabase!.auth.signInWithPassword({
+                    email: localUser.email || `${localUser.username.toLowerCase()}@fcfunz.temp`,
+                    password: password || '123',
+                  });
+                  if (!signInError && signInData.user) {
+                    db.setActiveUser(localUser.id);
+                    notifyUpdate();
+                    return localUser;
+                  }
+                }
+              } catch (e) {
+                console.warn('Failed to auto-sign up seed user in real Supabase, logging in locally:', e);
+              }
+              // Fallback to local login
+              db.setActiveUser(localUser.id);
+              notifyUpdate();
+              return localUser;
+            }
+            throw new Error('Nome de usuário não encontrado.');
+          }
+          
+          const profileEmail = (profileData as any).email;
+          if (!profileEmail) {
+            email = `${email.toLowerCase().trim()}@fcfunz.temp`;
+          } else {
+            email = profileEmail;
+          }
         }
-        email = profileData.email;
+
+        const { data: signInData, error: signInError } = await realSupabase!.auth.signInWithPassword({
+          email,
+          password: password || '123',
+        });
+        if (signInError) {
+          // If password is correct locally for a seed user, log them in locally!
+          const localUser = db.profiles.find(p => 
+            p.username.toLowerCase() === usernameOrEmail.trim().toLowerCase() ||
+            p.email?.toLowerCase() === email.toLowerCase()
+          );
+          if (localUser && (localUser.password || '123') === password) {
+            console.warn('Invalid Supabase auth but correct local password. Logging in locally...');
+            db.setActiveUser(localUser.id);
+            notifyUpdate();
+            return localUser;
+          }
+          throw signInError;
+        }
+        if (!signInData.user) throw new Error('Não foi possível obter os dados do usuário após login.');
+
+        const { data: pData, error: pError } = await realSupabase!.from('profiles')
+          .select('*')
+          .eq('id', signInData.user.id)
+          .single();
+        if (pError || !pData) {
+          throw new Error('Perfil de usuário não encontrado após o login.');
+        }
+
+        db.setActiveUser(pData.id);
+        notifyUpdate();
+        return pData as Profile;
+      } catch (err: any) {
+        const msg = String(err.message || err || '').toLowerCase();
+        if (msg.includes('failed to fetch') || msg.includes('network error') || msg.includes('load failed') || msg.includes('fetch') || msg.includes('cors')) {
+          handleSupabaseConnectionError(err);
+          // Fall through to local login
+        } else {
+          // Also let invalid credentials for local seed users login locally
+          const localUser = db.profiles.find(p => p.username.toLowerCase() === usernameOrEmail.trim().toLowerCase());
+          if (localUser && (localUser.password || '123') === password) {
+            console.warn('Supabase login error, but valid seed credentials. Logging in locally...');
+            db.setActiveUser(localUser.id);
+            notifyUpdate();
+            return localUser;
+          }
+          
+          const errMsg = err.message || '';
+          if (errMsg.toLowerCase().includes('email logins are disabled') || errMsg.toLowerCase().includes('logins are disabled') || errMsg.toLowerCase().includes('provider is disabled')) {
+            throw new Error('ATENÇÃO: O login por E-mail está desativado no seu projeto Supabase. DICA: Vá no painel do seu Supabase, em "Authentication" -> "Providers" -> "Email", ATIVE a opção principal "Enable Email provider", salve, e certifique-se de que APENAS a opção "Confirm email" (Confirmar e-mail) está desativada para não exigir links de confirmação por e-mail.');
+          }
+          throw err;
+        }
       }
-
-      const { data: signInData, error: signInError } = await realSupabase!.auth.signInWithPassword({
-        email,
-        password: password || '123',
-      });
-      if (signInError) throw signInError;
-      if (!signInData.user) throw new Error('Não foi possível obter os dados do usuário após login.');
-
-      const { data: pData, error: pError } = await realSupabase!.from('profiles')
-        .select('*')
-        .eq('id', signInData.user.id)
-        .single();
-      if (pError || !pData) {
-        throw new Error('Perfil de usuário não encontrado após o login.');
-      }
-
-      db.setActiveUser(pData.id);
-      notifyUpdate();
-      return pData as Profile;
     }
 
     const target = db.profiles.find(
@@ -1342,8 +2289,12 @@ export const api = {
   // --- SALAS (ROOMS) ---
   getRooms: async (): Promise<Sala[]> => {
     if (isUsingRealSupabase) {
-      const { data } = await realSupabase!.from('salas').select('*');
-      if (data) return data as Sala[];
+      try {
+        const { data } = await realSupabase!.from('salas').select('*');
+        if (data) return data as Sala[];
+      } catch (err) {
+        handleSupabaseConnectionError(err);
+      }
     }
     return db.salas;
   },
@@ -1767,7 +2718,7 @@ export const api = {
     const roomMsgs = db.mensagens.filter(m => m.sala_id === roomId);
     const sliced = roomMsgs.slice(-100); // LIMIT TO LAST 100 RECENT MESSAGES!
     return sliced.map(m => {
-      const user = db.profiles.find(p => p.id === m.autor_id);
+      const user = db.profiles.find(p => p.id === m.autor_id) || (m.autor_id.startsWith('bot_') ? getBotProfile(m.autor_id) : null);
       return {
         ...m,
         autor_username: user?.username || 'Desconhecido',
@@ -1778,7 +2729,9 @@ export const api = {
   },
 
   sendMessage: async (roomId: string, content: string, type: Mensagem['tipo'] = 'normal', cor?: string, senderId?: string, targetBotId?: string): Promise<Mensagem> => {
-    const user = senderId ? (db.profiles.find(p => p.id === senderId) || db.getActiveProfile()) : db.getActiveProfile();
+    const user = senderId 
+      ? (db.profiles.find(p => p.id === senderId) || (senderId.startsWith('bot_') ? getBotProfile(senderId) : null) || db.getActiveProfile()) 
+      : db.getActiveProfile();
     
     // Check if room is silenced
     const room = db.salas.find(s => s.id === roomId);
@@ -2100,7 +3053,9 @@ export const api = {
   },
 
   sendGift: async (toUserId: string, giftId: string, roomId?: string, senderId?: string): Promise<void> => {
-    const sender = senderId ? (db.profiles.find(p => p.id === senderId) || db.getActiveProfile()) : db.getActiveProfile();
+    const sender = senderId 
+      ? (db.profiles.find(p => p.id === senderId) || (senderId.startsWith('bot_') ? getBotProfile(senderId) : null) || db.getActiveProfile()) 
+      : db.getActiveProfile();
     const gift = DEFAULT_GIFT_CATALOG.find(g => g.id === giftId);
     if (!gift) throw new Error('Presente não encontrado');
 
@@ -3723,17 +4678,33 @@ if (typeof window !== 'undefined') {
     // Inactivity sweep for room participants (older than 5 minutes / 300 seconds)
     const nowTime = Date.now();
     const expiredParticipants = db.room_participants.filter(p => {
+      if (p.user_id.startsWith('bot_')) return false; // Exempt bots from inactivity sweep
       const lastAct = new Date(p.last_activity).getTime();
       return (nowTime - lastAct) >= 300000; // 300,000 ms = 5 minutes
     });
 
     if (expiredParticipants.length > 0) {
+      const activeUser = db.getActiveProfile();
       for (const p of expiredParticipants) {
+        // Clean up from local memory
         db.room_participants = db.room_participants.filter(item => item.id !== p.id);
-        const userProfile = db.profiles.find(prof => prof.id === p.user_id);
-        if (userProfile) {
-          // Send system inactivity message to the room
-          await api.sendMessage(p.sala_id, `@${userProfile.username} saiu por inatividade (inativo há 5 minutos)`, 'system');
+
+        // Clean up from Supabase table if using real Supabase
+        if (isUsingRealSupabase && realSupabase) {
+          realSupabase.from('room_participants').delete().eq('id', p.id).then(({ error }) => {
+            if (error) console.error('Error cleaning up inactive participant from Supabase:', error);
+          }).catch(err => {
+            handleSupabaseConnectionError(err);
+          });
+        }
+
+        // Only send the exit message if this expired participant is the current logged-in user
+        // (to prevent multiple active clients from spamming messages on behalf of a single disconnected user)
+        if (activeUser && p.user_id === activeUser.id) {
+          const userProfile = db.profiles.find(prof => prof.id === p.user_id);
+          if (userProfile) {
+            await api.sendMessage(p.sala_id, `@${userProfile.username} saiu por inatividade (inativo há 5 minutos)`, 'system');
+          }
         }
       }
       changed = true;
