@@ -23,7 +23,9 @@ import {
   LeaderboardCompetition,
   Anuncio,
   P2POrder,
-  MerchantRate
+  MerchantRate,
+  BotConfig,
+  BotAction
 } from '../types';
 
 // Clean environment variable values (remove accidental quotes, trailing slashes, or appended subpaths like /rest/v1)
@@ -1081,6 +1083,117 @@ function recordsEqual(r1: any, r2: any): boolean {
   return true;
 }
 
+export const INITIAL_BOT_CONFIGS: BotConfig[] = [
+  {
+    id: 'bot_u_mari',
+    username: 'Mari_Social',
+    nome: 'Mariana',
+    sobrenome: 'Silva',
+    avatar_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
+    cargo: 'Verified User',
+    bio: 'Adoro fazer novos amigos e espalhar energia positiva! ✨ Vamos papear?',
+    type: 'social',
+    personality: 'extrovertido',
+    active: true,
+    dailyBudget: 50,
+    spentToday: 0,
+    currentRoomId: null,
+    enteredAt: null,
+    ticksInRoom: 0,
+    password: '123'
+  },
+  {
+    id: 'bot_u_lucas',
+    username: 'LucasCurioso',
+    nome: 'Lucas',
+    sobrenome: 'Matusse',
+    avatar_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150',
+    cargo: 'Verified User',
+    bio: 'Sempre curioso. Gosto de fazer perguntas e descobrir coisas novas. 🧐',
+    type: 'social',
+    personality: 'curioso',
+    active: true,
+    dailyBudget: 40,
+    spentToday: 0,
+    currentRoomId: null,
+    enteredAt: null,
+    ticksInRoom: 0,
+    password: '123'
+  },
+  {
+    id: 'bot_u_gamerx',
+    username: 'GamerX_MZ',
+    nome: 'Nélio',
+    sobrenome: 'Chambone',
+    avatar_url: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+    cargo: 'Verified User',
+    bio: 'Viciado em jogos e piadas ruins! Rir é o melhor remédio kkkk 🎮🎲',
+    type: 'movimentador',
+    personality: 'engracado',
+    active: true,
+    dailyBudget: 30,
+    spentToday: 0,
+    currentRoomId: null,
+    enteredAt: null,
+    ticksInRoom: 0,
+    password: '123'
+  },
+  {
+    id: 'bot_u_ajudante',
+    username: 'Guia_FCFUNZ',
+    nome: 'Ajudante',
+    sobrenome: 'Oficial',
+    avatar_url: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150',
+    cargo: 'Guide',
+    bio: 'Olá! Sou o Guia oficial do FCFUNZ. Dúvidas sobre o chat, pontos ou MPoints? Só chamar! 💡',
+    type: 'respondedor',
+    personality: 'ajudante',
+    active: true,
+    dailyBudget: 100,
+    spentToday: 0,
+    currentRoomId: null,
+    enteredAt: null,
+    ticksInRoom: 0,
+    password: '123'
+  },
+  {
+    id: 'bot_u_timida',
+    username: 'Bela_Timida',
+    nome: 'Anabela',
+    sobrenome: 'Macuacua',
+    avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+    cargo: 'Unverified User',
+    bio: 'Um pouco tímida... mas gosto de ler as conversas e dar opiniões de vez em quando. 😊',
+    type: 'social',
+    personality: 'timido',
+    active: true,
+    dailyBudget: 20,
+    spentToday: 0,
+    currentRoomId: null,
+    enteredAt: null,
+    ticksInRoom: 0,
+    password: '123'
+  },
+  {
+    id: 'bot_u_prestigio',
+    username: 'Prestigio_Bot',
+    nome: 'Rei',
+    sobrenome: 'Do_Papo',
+    avatar_url: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150',
+    cargo: 'Super Merchant',
+    bio: 'Gosto de presentear quem mantém o chat ativo! Generosidade gera generosidade. 🔥🎁',
+    type: 'presenteador',
+    personality: 'extrovertido',
+    active: true,
+    dailyBudget: 150,
+    spentToday: 0,
+    currentRoomId: null,
+    enteredAt: null,
+    ticksInRoom: 0,
+    password: '123'
+  }
+];
+
 // Simulated Local Database State
 class LocalDB {
   profiles: Profile[] = [];
@@ -1105,6 +1218,8 @@ class LocalDB {
   anuncios: Anuncio[] = [];
   p2pOrders: P2POrder[] = [];
   merchantRates: MerchantRate[] = [];
+  botConfigs: BotConfig[] = [];
+  botActions: BotAction[] = [];
   credits_responsible_user_id: string = 'u1';
   credits_responsible_phone: string = '870870059';
   activeUserId: string = 'u1'; // Default logged in as Kelvin
@@ -1235,6 +1350,8 @@ class LocalDB {
     this.competitions = loadFromStorage('competitions', []);
     this.anuncios = loadFromStorage('anuncios', SEED_ANUNCIOS);
     this.p2pOrders = loadFromStorage('p2p_orders', []);
+    this.botConfigs = loadFromStorage('bot_configs', INITIAL_BOT_CONFIGS);
+    this.botActions = loadFromStorage('bot_actions', []);
     this.merchantRates = loadFromStorage('merchant_rates', [
       { merchant_id: 'u1', rate: 1.20 },
       { merchant_id: 'u3', rate: 1.25 },
@@ -1767,6 +1884,8 @@ class LocalDB {
     saveToStorage('competitions', this.competitions);
     saveToStorage('anuncios', this.anuncios);
     saveToStorage('p2p_orders', this.p2pOrders);
+    saveToStorage('bot_configs', this.botConfigs);
+    saveToStorage('bot_actions', this.botActions);
     saveToStorage('merchant_rates', this.merchantRates);
     localStorage.setItem('fcfunz_credits_resp_user', this.credits_responsible_user_id);
     localStorage.setItem('fcfunz_credits_resp_phone', this.credits_responsible_phone);
@@ -1801,6 +1920,8 @@ class LocalDB {
     this.vaquinhaContributions = loadFromStorage('vaquinha_contributions', SEED_VAQUINHA);
     this.competitions = loadFromStorage('competitions', []);
     this.anuncios = loadFromStorage('anuncios', SEED_ANUNCIOS);
+    this.botConfigs = loadFromStorage('bot_configs', INITIAL_BOT_CONFIGS);
+    this.botActions = loadFromStorage('bot_actions', []);
   }
 
   getActiveProfile(): Profile {
@@ -2790,100 +2911,63 @@ export const api = {
     return newMsg;
   },
 
-  // --- AMIZADES ---
+  // --- AMIZADES (AMIGOS Redesign: Everyone is a friend, amizades table represents Close Friends) ---
   getFriends: async (): Promise<Profile[]> => {
     const user = db.getActiveProfile();
-    const friendshipIds = db.amizades
-      .filter(a => a.status === 'aceito' && (a.solicitante_id === user.id || a.destinatario_id === user.id))
-      .map(a => a.solicitante_id === user.id ? a.destinatario_id : a.solicitante_id);
-    return db.profiles.filter(p => friendshipIds.includes(p.id));
+    return db.profiles.filter(p => p.id !== user.id);
+  },
+
+  getCloseFriends: async (): Promise<Profile[]> => {
+    const user = db.getActiveProfile();
+    const closeFriendIds = db.amizades
+      .filter(a => a.solicitante_id === user.id && a.status === 'aceito')
+      .map(a => a.destinatario_id);
+    return db.profiles.filter(p => closeFriendIds.includes(p.id));
+  },
+
+  toggleCloseFriend: async (targetUserId: string): Promise<boolean> => {
+    const user = db.getActiveProfile();
+    const fIdx = db.amizades.findIndex(a => a.solicitante_id === user.id && a.destinatario_id === targetUserId);
+    let added = false;
+    if (fIdx !== -1) {
+      db.amizades.splice(fIdx, 1);
+    } else {
+      db.amizades.push({
+        id: 'am_' + Math.random().toString(36).substr(2, 9),
+        solicitante_id: user.id,
+        destinatario_id: targetUserId,
+        status: 'aceito',
+        criado_em: new Date().toISOString()
+      });
+      added = true;
+    }
+    db.save();
+    notifyUpdate();
+    return added;
   },
 
   getFriendshipRequests: async (): Promise<{ received: Profile[], sent: Profile[] }> => {
-    const user = db.getActiveProfile();
-    
-    const receivedIds = db.amizades
-      .filter(a => a.status === 'pendente' && a.destinatario_id === user.id)
-      .map(a => a.solicitante_id);
-    
-    const sentIds = db.amizades
-      .filter(a => a.status === 'pendente' && a.solicitante_id === user.id)
-      .map(a => a.destinatario_id);
-
-    return {
-      received: db.profiles.filter(p => receivedIds.includes(p.id)),
-      sent: db.profiles.filter(p => sentIds.includes(p.id))
-    };
+    return { received: [], sent: [] };
   },
 
   sendFriendRequest: async (username: string): Promise<void> => {
-    const user = db.getActiveProfile();
+    // Stubbed since everyone is already friends, but toggles close friends instead!
     const dest = db.profiles.find(p => p.username.toLowerCase() === username.toLowerCase());
     if (!dest) throw new Error('Usuário não encontrado');
-    if (dest.id === user.id) throw new Error('Você não pode ser amigo de si mesmo');
-
-    const exists = db.amizades.some(a => 
-      (a.solicitante_id === user.id && a.destinatario_id === dest.id) ||
-      (a.solicitante_id === dest.id && a.destinatario_id === user.id)
-    );
-    if (exists) throw new Error('Solicitação ou amizade já existente');
-
-    db.amizades.push({
-      id: 'am_' + Math.random().toString(36).substr(2, 9),
-      solicitante_id: user.id,
-      destinatario_id: dest.id,
-      status: 'pendente',
-      criado_em: new Date().toISOString()
-    });
-    
-    // Add friend request notification
-    await api.addNotification({
-      usuario_id: dest.id,
-      title: 'Solicitação de Amizade 🤝',
-      message: `@${user.username} enviou uma solicitação de amizade para você.`,
-      type: 'friend_request',
-      sender_id: user.id,
-      sender_username: user.username,
-    });
-
-    notifyUpdate();
+    await api.toggleCloseFriend(dest.id);
   },
 
   respondToFriendRequest: async (requesterId: string, accept: boolean): Promise<void> => {
-    const user = db.getActiveProfile();
-    const fIdx = db.amizades.findIndex(a => a.solicitante_id === requesterId && a.destinatario_id === user.id && a.status === 'pendente');
-    if (fIdx !== -1) {
-      if (accept) {
-        db.amizades[fIdx].status = 'aceito';
-        // Add some XP for making friends
-        await api.addXP(user.id, 15);
-        await api.addXP(requesterId, 15);
-
-        // Add response notification
-        await api.addNotification({
-          usuario_id: requesterId,
-          title: 'Solicitação de Amizade Aceita 🎉',
-          message: `@${user.username} aceitou sua solicitação de amizade!`,
-          type: 'friend_request',
-          sender_id: user.id,
-          sender_username: user.username,
-        });
-      } else {
-        db.amizades.splice(fIdx, 1);
-      }
-      notifyUpdate();
-    }
+    // Stubbed since requests are no longer needed
   },
 
   removeFriend: async (friendId: string): Promise<void> => {
+    // Toggles close friend off
     const user = db.getActiveProfile();
-    db.amizades = db.amizades.filter(a => 
-      !((a.solicitante_id === user.id && a.destinatario_id === friendId) || 
-        (a.solicitante_id === friendId && a.destinatario_id === user.id))
-    );
-    if (isUsingRealSupabase) {
-      await realSupabase!.from('amizades').delete().eq('solicitante_id', user.id).eq('destinatario_id', friendId);
-      await realSupabase!.from('amizades').delete().eq('solicitante_id', friendId).eq('destinatario_id', user.id);
+    const fIdx = db.amizades.findIndex(a => a.solicitante_id === user.id && a.destinatario_id === friendId);
+    if (fIdx !== -1) {
+      db.amizades.splice(fIdx, 1);
+      db.save();
     }
     notifyUpdate();
   },
@@ -3537,7 +3621,7 @@ export const api = {
     notifyUpdate();
   },
 
-  createAnuncio: async (texto: string, dias: number, custo: number): Promise<Anuncio> => {
+  createAnuncio: async (texto: string, dias: number, custo: number, imageUrl?: string | null): Promise<Anuncio> => {
     const user = db.getActiveProfile();
     if (user.credits < custo) {
       throw new Error(`Você não tem MZN suficiente (precisa de ${custo} MZN).`);
@@ -3549,8 +3633,9 @@ export const api = {
     const expira = new Date();
     expira.setDate(agora.getDate() + dias);
 
+    const adId = 'ad_' + Math.random().toString(36).substr(2, 9);
     const novoAnuncio: Anuncio = {
-      id: 'ad_' + Math.random().toString(36).substr(2, 9),
+      id: adId,
       autor_id: user.id,
       autor_username: user.username,
       texto: texto.trim(),
@@ -3559,17 +3644,37 @@ export const api = {
       valor_pago: custo,
       criado_em: agora.toISOString(),
       expira_em: expira.toISOString(),
-      status: 'pending'
+      status: 'pending',
+      image_url: imageUrl || null
     };
 
     db.anuncios.push(novoAnuncio);
+
+    // Also push a Tweet for the feed
+    const novoTweet: Tweet = {
+      id: 't_' + adId,
+      user_id: user.id,
+      content: texto.trim(),
+      image_url: imageUrl || null,
+      video_url: null,
+      likes_count: 0,
+      dislikes_count: 0,
+      comments_count: 0,
+      created_at: agora.toISOString(),
+      updated_at: agora.toISOString(),
+      dias,
+      valor_pago: custo,
+      status: 'pending',
+      expira_em: expira.toISOString()
+    };
+    db.tweets.push(novoTweet);
 
     logTransaction(user.id, 'item_buy', -custo, `Criou Anúncio (Pendente Aprovação) (${dias} dia(s))`);
 
     await api.addNotification({
       usuario_id: user.id,
       title: '📢 Anúncio Enviado para Aprovação!',
-      message: `Seu anúncio foi criado com sucesso e enviado para aprovação da Staff! Assim que for aprovado, ele será exibido aleatoriamente no rodapé!`,
+      message: `Seu anúncio foi criado com sucesso e enviado para aprovação da Staff! Assim que for aprovado, ele será exibido no Feed e no Rodapé!`,
       type: 'system',
       amount: custo,
     });
@@ -3584,6 +3689,8 @@ export const api = {
       const expTime = new Date(ad.expira_em).getTime();
       if (expTime < agora && ad.status === 'active') {
         ad.status = 'expired';
+        const tweet = db.tweets.find(t => t.id === 't_' + ad.id);
+        if (tweet) tweet.status = 'expired';
       }
       return ad;
     }).filter(ad => ad.status === 'active');
@@ -3598,13 +3705,19 @@ export const api = {
     if (!ad) throw new Error('Anúncio não encontrado.');
     
     ad.status = status;
+
+    // Find and update the associated Tweet as well
+    const tweet = db.tweets.find(t => t.id === 't_' + id || t.id === id);
+    if (tweet) {
+      tweet.status = status;
+    }
     
     // Notify user
     await api.addNotification({
       usuario_id: ad.autor_id,
       title: status === 'active' ? '✅ Anúncio Aprovado! 🎉' : '❌ Anúncio Rejeitado',
       message: status === 'active' 
-        ? `Seu anúncio "${ad.texto}" foi aprovado pela Staff e já está ativo no rodapé!` 
+        ? `Seu anúncio "${ad.texto}" foi aprovado pela Staff e já está ativo no Feed e no Rodapé!` 
         : `Seu anúncio "${ad.texto}" foi rejeitado pela Staff. Se achar que houve um erro, entre em contato.`,
       type: 'system',
       amount: 0,
@@ -4610,6 +4723,95 @@ export const api = {
     db.save();
     notifyUpdate();
     return comp;
+  },
+
+  getBotConfigs: async (): Promise<BotConfig[]> => {
+    return db.botConfigs;
+  },
+
+  updateBotConfig: async (botId: string, updates: Partial<BotConfig>): Promise<void> => {
+    const configIdx = db.botConfigs.findIndex(b => b.id === botId);
+    if (configIdx !== -1) {
+      db.botConfigs[configIdx] = { ...db.botConfigs[configIdx], ...updates };
+    }
+    const profileIdx = db.profiles.findIndex(p => p.id === botId);
+    if (profileIdx !== -1) {
+      if (updates.username) db.profiles[profileIdx].username = updates.username;
+      if (updates.nome) db.profiles[profileIdx].nome = updates.nome;
+      if (updates.sobrenome) db.profiles[profileIdx].sobrenome = updates.sobrenome;
+      if (updates.avatar_url) db.profiles[profileIdx].avatar_url = updates.avatar_url;
+      if (updates.cargo) db.profiles[profileIdx].cargo = updates.cargo as any;
+      if (updates.password) db.profiles[profileIdx].password = updates.password;
+    }
+    db.save();
+    notifyUpdate();
+  },
+
+  getBotActions: async (): Promise<BotAction[]> => {
+    return db.botActions;
+  },
+
+  createBotAction: async (
+    botId: string,
+    botUsername: string,
+    type: 'message' | 'ad',
+    content: string,
+    salaId?: string,
+    salaNome?: string,
+    imageUrl?: string | null
+  ): Promise<BotAction> => {
+    const newAction: BotAction = {
+      id: 'bact_' + Math.random().toString(36).substr(2, 9),
+      bot_id: botId,
+      bot_username: botUsername,
+      type,
+      sala_id: salaId,
+      sala_nome: salaNome,
+      content,
+      image_url: imageUrl,
+      created_at: new Date().toISOString(),
+      status: 'pending'
+    };
+    db.botActions.push(newAction);
+    db.save();
+    notifyUpdate();
+    return newAction;
+  },
+
+  updateBotActionStatus: async (actionId: string, status: 'approved' | 'rejected'): Promise<void> => {
+    const actIdx = db.botActions.findIndex(a => a.id === actionId);
+    if (actIdx !== -1) {
+      const action = db.botActions[actIdx];
+      action.status = status;
+      
+      if (status === 'approved') {
+        if (action.type === 'message' && action.sala_id) {
+          // Send message immediately
+          await api.sendMessage(action.sala_id, action.content, 'normal', undefined, action.bot_id);
+        } else if (action.type === 'ad') {
+          // Create an active ad tweet for the feed
+          const newTweet: Tweet = {
+            id: 't_' + Math.random().toString(36).substr(2, 9),
+            user_id: action.bot_id,
+            content: action.content,
+            image_url: action.image_url || null,
+            video_url: null,
+            likes_count: Math.floor(Math.random() * 12),
+            dislikes_count: 0,
+            comments_count: 0,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            dias: 30, // Default premium bot ad duration
+            valor_pago: 0,
+            expira_em: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            status: 'active'
+          };
+          db.tweets.push(newTweet);
+        }
+      }
+      db.save();
+      notifyUpdate();
+    }
   }
 };
 

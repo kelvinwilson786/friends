@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { api, db, subscribeToGlobalUpdates } from '../lib/supabase';
-import { Profile, Sala, ApolloCode, UserCargo, VaquinhaContribution, BADGE_CONFIG, saveCustomBadgeConfig, resetBadgeConfigToDefault, Anuncio, P2POrder } from '../types';
+import { Profile, Sala, ApolloCode, UserCargo, VaquinhaContribution, BADGE_CONFIG, saveCustomBadgeConfig, resetBadgeConfigToDefault, Anuncio, P2POrder, BotAction, BotConfig } from '../types';
 import { Megaphone } from 'lucide-react';
 import { botOrchestrator } from '../lib/bots';
 import { motion, AnimatePresence } from 'motion/react';
@@ -93,6 +93,8 @@ export default function AdminSection() {
   const [botMetrics, setBotMetrics] = useState(() => botOrchestrator.getBotMetrics());
   const [botLogs, setBotLogs] = useState(() => botOrchestrator.getLogs());
   const [isOrchestratorRunning, setIsOrchestratorRunning] = useState(() => botOrchestrator.isRunning());
+  const [botActions, setBotActions] = useState<BotAction[]>([]);
+  const [activeBotTab, setActiveBotTab] = useState<'manage' | 'mod'>('manage');
 
   // Action drawers for individual bots
   const [activeActionBotId, setActiveActionBotId] = useState<string | null>(null);
@@ -152,6 +154,7 @@ export default function AdminSection() {
     setBotMetrics(botOrchestrator.getBotMetrics());
     setBotLogs(botOrchestrator.getLogs());
     setIsOrchestratorRunning(botOrchestrator.isRunning());
+    api.getBotActions().then(setBotActions).catch(() => {});
 
     // Load logs from localStorage
     const storedLogs = localStorage.getItem('fcfunz_audit_logs');
@@ -535,6 +538,26 @@ export default function AdminSection() {
     botOrchestrator.autoBalanceRooms();
     showSuccess('Balanceamento automático de salas executado!');
     loadAdminData();
+  };
+
+  const handleApproveBotAction = async (actionId: string) => {
+    try {
+      await api.updateBotActionStatus(actionId, 'approved');
+      showSuccess('Ação do robô aprovada com sucesso!');
+      loadAdminData();
+    } catch (e: any) {
+      showError(e.message);
+    }
+  };
+
+  const handleRejectBotAction = async (actionId: string) => {
+    try {
+      await api.updateBotActionStatus(actionId, 'rejected');
+      showSuccess('Ação do robô rejeitada.');
+      loadAdminData();
+    } catch (e: any) {
+      showError(e.message);
+    }
   };
 
   // Check if active user has permission (Founder or Global Admin)
@@ -1430,367 +1453,480 @@ export default function AdminSection() {
               </div>
             </div>
 
-            {/* Engagement Metrics Panel */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
-              <div className="bg-slate-950/30 border border-slate-850 p-3.5 rounded-xl flex flex-col justify-between">
-                <div>
-                  <span className="text-[9px] font-mono font-bold text-slate-500 uppercase">Bots Ativos</span>
-                  <p className="text-xl font-black text-white mt-1">{botMetrics.active} / {botMetrics.total}</p>
-                </div>
-                <div className="text-[10px] text-slate-400 mt-2 flex items-center gap-1">
-                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-400" />
-                  {botMetrics.inRooms} em salas de chat
-                </div>
-              </div>
-
-              <div className="bg-slate-950/30 border border-slate-850 p-3.5 rounded-xl flex flex-col justify-between">
-                <div>
-                  <span className="text-[9px] font-mono font-bold text-slate-500 uppercase">Salas Vazias Reduzidas</span>
-                  <div className="flex items-baseline gap-1 mt-1">
-                    <p className="text-xl font-black text-emerald-400">{botMetrics.emptyRoomsReduced}%</p>
-                  </div>
-                </div>
-                <div className="w-full bg-slate-800 rounded-full h-1 mt-2 overflow-hidden">
-                  <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${botMetrics.emptyRoomsReduced}%` }} />
-                </div>
-              </div>
-
-              <div className="bg-slate-950/30 border border-slate-850 p-3.5 rounded-xl flex flex-col justify-between">
-                <div>
-                  <span className="text-[9px] font-mono font-bold text-slate-500 uppercase">Taxa de Resposta de Menção</span>
-                  <p className="text-xl font-black text-pink-400 mt-1">{botMetrics.responseRate}%</p>
-                </div>
-                <div className="w-full bg-slate-800 rounded-full h-1 mt-2 overflow-hidden">
-                  <div className="bg-pink-500 h-full rounded-full" style={{ width: `${botMetrics.responseRate}%` }} />
-                </div>
-              </div>
-
-              <div className="bg-slate-950/30 border border-slate-850 p-3.5 rounded-xl flex flex-col justify-between">
-                <div>
-                  <span className="text-[9px] font-mono font-bold text-slate-500 uppercase">Histórico de Atividade</span>
-                  <p className="text-xs font-semibold text-slate-200 mt-1">
-                    💬 {botMetrics.totalMsgs} Mensagens enviadas
-                  </p>
-                  <p className="text-xs font-semibold text-slate-200 mt-0.5">
-                    🎁 {botMetrics.totalGifts} Presentes cortesia
-                  </p>
-                </div>
-                <button
-                  onClick={handleRunAutoBalance}
-                  className="mt-2 w-full bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 border border-indigo-500/20 py-1 rounded text-[9px] font-mono font-bold uppercase transition flex items-center justify-center gap-1"
-                >
-                  <RefreshCw className="h-2.5 w-2.5" /> Balancear Densidade
-                </button>
-              </div>
+            {/* Sub-tabs menu */}
+            <div className="flex border-b border-slate-850 mt-4 mb-4 shrink-0">
+              <button
+                type="button"
+                onClick={() => setActiveBotTab('manage')}
+                className={`px-4 py-2 text-xs font-bold border-b-2 transition ${
+                  activeBotTab === 'manage'
+                    ? 'border-indigo-500 text-indigo-400 font-extrabold'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Configuração & Comando dos Bots
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveBotTab('mod')}
+                className={`px-4 py-2 text-xs font-bold border-b-2 transition flex items-center gap-2 ${
+                  activeBotTab === 'mod'
+                    ? 'border-indigo-500 text-indigo-400 font-extrabold'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Moderação de Ações Pendentes
+                {botActions.filter(a => a.status === 'pending').length > 0 && (
+                  <span className="bg-rose-500 text-white font-mono text-[9px] font-bold px-1.5 py-0.2 rounded-full animate-pulse">
+                    {botActions.filter(a => a.status === 'pending').length}
+                  </span>
+                )}
+              </button>
             </div>
 
-            {/* Split view: Bot listing & Terminal Logs */}
-            <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5 mt-5 min-h-0">
-              
-              {/* Bots list (7 cols) */}
-              <div className="lg:col-span-8 flex flex-col min-h-0 border border-slate-850/60 rounded-xl bg-slate-950/10 overflow-hidden">
-                <div className="px-4 py-2.5 bg-slate-950/30 border-b border-slate-850/60 flex items-center justify-between">
-                  <span className="text-[10px] font-mono font-bold text-slate-400 uppercase">Configuração Individual de Robôs</span>
-                  <div className="flex items-center gap-2">
+            {activeBotTab === 'manage' && (
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                {/* Engagement Metrics Panel */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="bg-slate-950/30 border border-slate-850 p-3.5 rounded-xl flex flex-col justify-between">
+                    <div>
+                      <span className="text-[9px] font-mono font-bold text-slate-500 uppercase">Bots Ativos</span>
+                      <p className="text-xl font-black text-white mt-1">{botMetrics.active} / {botMetrics.total}</p>
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-2 flex items-center gap-1">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                      {botMetrics.inRooms} em salas de chat
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-950/30 border border-slate-850 p-3.5 rounded-xl flex flex-col justify-between">
+                    <div>
+                      <span className="text-[9px] font-mono font-bold text-slate-500 uppercase">Salas Vazias Reduzidas</span>
+                      <div className="flex items-baseline gap-1 mt-1">
+                        <p className="text-xl font-black text-emerald-400">{botMetrics.emptyRoomsReduced}%</p>
+                      </div>
+                    </div>
+                    <div className="w-full bg-slate-800 rounded-full h-1 mt-2 overflow-hidden">
+                      <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${botMetrics.emptyRoomsReduced}%` }} />
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-950/30 border border-slate-850 p-3.5 rounded-xl flex flex-col justify-between">
+                    <div>
+                      <span className="text-[9px] font-mono font-bold text-slate-500 uppercase">Taxa de Resposta de Menção</span>
+                      <p className="text-xl font-black text-pink-400 mt-1">{botMetrics.responseRate}%</p>
+                    </div>
+                    <div className="w-full bg-slate-800 rounded-full h-1 mt-2 overflow-hidden">
+                      <div className="bg-pink-500 h-full rounded-full" style={{ width: `${botMetrics.responseRate}%` }} />
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-950/30 border border-slate-850 p-3.5 rounded-xl flex flex-col justify-between">
+                    <div>
+                      <span className="text-[9px] font-mono font-bold text-slate-500 uppercase">Histórico de Atividade</span>
+                      <p className="text-xs font-semibold text-slate-200 mt-1">
+                        💬 {botMetrics.totalMsgs} Mensagens enviadas
+                      </p>
+                      <p className="text-xs font-semibold text-slate-200 mt-0.5">
+                        🎁 {botMetrics.totalGifts} Presentes cortesia
+                      </p>
+                    </div>
                     <button
-                      onClick={() => handleToggleAllBots(true)}
-                      className="text-[9px] font-mono font-bold bg-slate-900 border border-slate-800 hover:border-slate-700 px-2 py-0.5 rounded text-slate-300 transition"
+                      onClick={handleRunAutoBalance}
+                      className="mt-2 w-full bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 border border-indigo-500/20 py-1 rounded text-[9px] font-mono font-bold uppercase transition flex items-center justify-center gap-1"
                     >
-                      Ligar Todos
-                    </button>
-                    <button
-                      onClick={() => handleToggleAllBots(false)}
-                      className="text-[9px] font-mono font-bold bg-slate-900 border border-slate-800 hover:border-slate-700 px-2 py-0.5 rounded text-slate-300 transition"
-                    >
-                      Desligar Todos
+                      <RefreshCw className="h-2.5 w-2.5" /> Balancear Densidade
                     </button>
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-3 space-y-3 pr-1">
-                  {botsList.map((bot) => {
-                    const room = rooms.find(r => r.id === bot.currentRoomId);
-                    const isBotActionOpen = activeActionBotId === bot.id;
+                {/* Split view: Bot listing & Terminal Logs */}
+                <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5 mt-5 min-h-0">
+                  
+                  {/* Bots list (7 cols) */}
+                  <div className="lg:col-span-8 flex flex-col min-h-0 border border-slate-850/60 rounded-xl bg-slate-950/10 overflow-hidden">
+                    <div className="px-4 py-2.5 bg-slate-950/30 border-b border-slate-850/60 flex items-center justify-between">
+                      <span className="text-[10px] font-mono font-bold text-slate-400 uppercase">Configuração Individual de Robôs</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleToggleAllBots(true)}
+                          className="text-[9px] font-mono font-bold bg-slate-900 border border-slate-800 hover:border-slate-700 px-2 py-0.5 rounded text-slate-300 transition"
+                        >
+                          Ligar Todos
+                        </button>
+                        <button
+                          onClick={() => handleToggleAllBots(false)}
+                          className="text-[9px] font-mono font-bold bg-slate-900 border border-slate-800 hover:border-slate-700 px-2 py-0.5 rounded text-slate-300 transition"
+                        >
+                          Desligar Todos
+                        </button>
+                      </div>
+                    </div>
 
-                    return (
-                      <div key={bot.id} className="p-3.5 rounded-xl border border-slate-850/80 bg-slate-900/30 flex flex-col gap-3">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div className="flex items-center gap-3">
-                            <img src={bot.avatar_url} alt={bot.username} className="w-10 h-10 rounded-full border border-slate-850 object-cover" />
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold text-slate-200">@{bot.username}</span>
-                                <span className={`text-[8px] font-bold font-mono px-1.5 py-0.2 rounded border uppercase ${
-                                  bot.personality === 'extrovertido' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' :
-                                  bot.personality === 'timido' ? 'bg-sky-500/10 border-sky-500/20 text-sky-400' :
-                                  bot.personality === 'engracado' ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' :
-                                  bot.personality === 'ajudante' ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400' :
-                                  'bg-pink-500/10 border-pink-500/20 text-pink-400'
-                                }`}>
-                                  {bot.personality}
-                                </span>
-                                <span className="text-[8px] font-bold font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700 uppercase">
-                                  {bot.type}
-                                </span>
+                    <div className="flex-1 overflow-y-auto p-3 space-y-3 pr-1">
+                      {botsList.map((bot) => {
+                        const room = rooms.find(r => r.id === bot.currentRoomId);
+                        const isBotActionOpen = activeActionBotId === bot.id;
+
+                        return (
+                          <div key={bot.id} className="p-3.5 rounded-xl border border-slate-850/80 bg-slate-900/30 flex flex-col gap-3">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                              <div className="flex items-center gap-3">
+                                <img src={bot.avatar_url} alt={bot.username} className="w-10 h-10 rounded-full border border-slate-850 object-cover" />
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-bold text-slate-200">@{bot.username}</span>
+                                    <span className={`text-[8px] font-bold font-mono px-1.5 py-0.2 rounded border uppercase ${
+                                      bot.personality === 'extrovertido' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' :
+                                      bot.personality === 'timido' ? 'bg-sky-500/10 border-sky-500/20 text-sky-400' :
+                                      bot.personality === 'engracado' ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' :
+                                      bot.personality === 'ajudante' ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400' :
+                                      'bg-pink-500/10 border-pink-500/20 text-pink-400'
+                                    }`}>
+                                      {bot.personality}
+                                    </span>
+                                    <span className="text-[8px] font-bold font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700 uppercase">
+                                      {bot.type}
+                                    </span>
+                                  </div>
+                                  <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-2">
+                                    <span className={`h-1.5 w-1.5 rounded-full ${bot.active ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500'}`} />
+                                    {bot.active ? 'Autônomo' : 'Manual apenas'}
+                                    <span className="text-slate-600">|</span>
+                                    📍 {room ? `Em: ${room.nome}` : 'Offline'}
+                                  </p>
+
+                                  {/* Bot Credentials for Admin Login */}
+                                  <div className="mt-2.5 flex items-center gap-2.5 bg-slate-950/80 border border-slate-850/80 px-2.5 py-1.5 rounded-lg text-[9px] font-mono text-slate-400 w-fit">
+                                    <span className="text-slate-500 uppercase tracking-wider font-extrabold shrink-0">Acesso:</span>
+                                    <span className="text-slate-300">User: <strong className="text-indigo-400 select-all">@{bot.username}</strong></span>
+                                    <span className="text-slate-600">/</span>
+                                    <span className="text-slate-300">Senha: <strong className="text-indigo-400 select-all">{db.profiles.find(p => p.id === bot.id)?.password || '123'}</strong></span>
+                                  </div>
+                                </div>
                               </div>
-                              <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-2">
-                                <span className={`h-1.5 w-1.5 rounded-full ${bot.active ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500'}`} />
-                                {bot.active ? 'Autônomo' : 'Manual apenas'}
-                                <span className="text-slate-600">|</span>
-                                📍 {room ? `Em: ${room.nome}` : 'Offline'}
-                              </p>
+
+                              {/* Quick controls */}
+                              <div className="flex items-center gap-2 self-end sm:self-center">
+                                {/* Autonomous toggle */}
+                                <button
+                                  onClick={() => handleToggleBotActive(bot.id, bot.active)}
+                                  className={`text-[9px] font-mono font-bold px-2 py-1 rounded-lg border transition ${
+                                    bot.active
+                                      ? 'bg-emerald-900/20 border-emerald-500/30 text-emerald-400 hover:bg-emerald-900/30'
+                                      : 'bg-slate-800 border-slate-750 text-slate-400 hover:text-slate-300'
+                                  }`}
+                                >
+                                  {bot.active ? 'Auto: ON' : 'Auto: OFF'}
+                                </button>
+
+                                {/* Open actions */}
+                                <button
+                                  onClick={() => {
+                                    if (isBotActionOpen) {
+                                      setActiveActionBotId(null);
+                                      setBotActionType(null);
+                                    } else {
+                                      setActiveActionBotId(bot.id);
+                                      setBotActionType('enter');
+                                    }
+                                  }}
+                                  className={`text-[9px] font-mono font-bold px-2.5 py-1 rounded-lg border transition ${
+                                    isBotActionOpen 
+                                      ? 'bg-indigo-600 border-indigo-500 text-white' 
+                                      : 'bg-slate-800 border-slate-750 text-slate-200 hover:bg-slate-750'
+                                  }`}
+                                >
+                                  ⚡ COMANDAR
+                                </button>
+
+                                {bot.currentRoomId && (
+                                  <button
+                                    onClick={() => handleForceLeaveRoom(bot.id)}
+                                    className="text-[9px] font-mono font-bold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 px-2 py-1 rounded-lg transition"
+                                    title="Forçar saída da sala"
+                                  >
+                                    Desconectar
+                                  </button>
+                                )}
+                              </div>
                             </div>
-                          </div>
 
-                          {/* Quick controls */}
-                          <div className="flex items-center gap-2 self-end sm:self-center">
-                            {/* Autonomous toggle */}
-                            <button
-                              onClick={() => handleToggleBotActive(bot.id, bot.active)}
-                              className={`text-[9px] font-mono font-bold px-2 py-1 rounded-lg border transition ${
-                                bot.active
-                                  ? 'bg-emerald-900/20 border-emerald-500/30 text-emerald-400 hover:bg-emerald-900/30'
-                                  : 'bg-slate-800 border-slate-750 text-slate-400 hover:text-slate-300'
-                              }`}
-                            >
-                              {bot.active ? 'Auto: ON' : 'Auto: OFF'}
-                            </button>
+                            {/* Expandable actions panel */}
+                            {isBotActionOpen && (
+                              <div className="p-3.5 rounded-lg bg-slate-950/40 border border-slate-850 text-xs text-slate-300 space-y-3">
+                                <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-850">
+                                  <button
+                                    onClick={() => setBotActionType('enter')}
+                                    className={`flex-1 text-center py-1 rounded font-mono text-[9px] font-bold transition uppercase ${
+                                      botActionType === 'enter' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+                                    }`}
+                                  >
+                                    Sala 🚪
+                                  </button>
+                                  <button
+                                    onClick={() => setBotActionType('speak')}
+                                    className={`flex-1 text-center py-1 rounded font-mono text-[9px] font-bold transition uppercase ${
+                                      botActionType === 'speak' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+                                    }`}
+                                  >
+                                    Falar 💬
+                                  </button>
+                                  <button
+                                    onClick={() => setBotActionType('gift')}
+                                    className={`flex-1 text-center py-1 rounded font-mono text-[9px] font-bold transition uppercase ${
+                                      botActionType === 'gift' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+                                    }`}
+                                  >
+                                    Presente 🎁
+                                  </button>
+                                  <button
+                                    onClick={() => setBotActionType('feed')}
+                                    className={`flex-1 text-center py-1 rounded font-mono text-[9px] font-bold transition uppercase ${
+                                      botActionType === 'feed' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+                                    }`}
+                                  >
+                                    Timeline 📱
+                                  </button>
+                                </div>
 
-                            {/* Open actions */}
-                            <button
-                              onClick={() => {
-                                if (isBotActionOpen) {
-                                  setActiveActionBotId(null);
-                                  setBotActionType(null);
-                                } else {
-                                  setActiveActionBotId(bot.id);
-                                  setBotActionType('enter');
-                                }
-                              }}
-                              className={`text-[9px] font-mono font-bold px-2.5 py-1 rounded-lg border transition ${
-                                isBotActionOpen 
-                                  ? 'bg-indigo-600 border-indigo-500 text-white' 
-                                  : 'bg-slate-800 border-slate-750 text-slate-200 hover:bg-slate-750'
-                              }`}
-                            >
-                              ⚡ COMANDAR
-                            </button>
+                                {/* Option 1: Join room */}
+                                {botActionType === 'enter' && (
+                                  <div className="space-y-2">
+                                    <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider block">Forçar entrada em Sala</span>
+                                    <div className="flex gap-2">
+                                      <select
+                                        value={botEnterRoomId}
+                                        onChange={(e) => setBotEnterRoomId(e.target.value)}
+                                        className="flex-1 bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 font-mono"
+                                      >
+                                        <option value="">-- Escolher Sala --</option>
+                                        {rooms.map(r => (
+                                          <option key={r.id} value={r.id}>{r.nome} ({db.room_participants.filter(p => p.sala_id === r.id).length} ativos)</option>
+                                        ))}
+                                      </select>
+                                      <button
+                                        onClick={() => handleForceEnterRoom(bot.id)}
+                                        className="bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-xs px-4 py-1 rounded-md font-bold transition uppercase"
+                                      >
+                                        Ir para Sala
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
 
-                            {bot.currentRoomId && (
-                              <button
-                                onClick={() => handleForceLeaveRoom(bot.id)}
-                                className="text-[9px] font-mono font-bold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 px-2 py-1 rounded-lg transition"
-                                title="Forçar saída da sala"
-                              >
-                                Desconectar
-                              </button>
+                                {/* Option 2: Force speak */}
+                                {botActionType === 'speak' && (
+                                  <div className="space-y-2">
+                                    <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider block">Forçar envio de Mensagem (no Chat)</span>
+                                    <div className="flex gap-2">
+                                      <input
+                                        type="text"
+                                        value={botSpeakText}
+                                        onChange={(e) => setBotSpeakText(e.target.value)}
+                                        placeholder="Digite o que o robô falará na sala..."
+                                        className="flex-1 bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
+                                        onKeyDown={(e) => e.key === 'Enter' && handleForceSpeak(bot.id)}
+                                      />
+                                      <button
+                                        onClick={() => handleForceSpeak(bot.id)}
+                                        className="bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-xs px-4 py-1 rounded-md font-bold transition uppercase flex items-center gap-1"
+                                      >
+                                        <Send className="h-3 w-3" /> Falar
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Option 3: Force gift */}
+                                {botActionType === 'gift' && (
+                                  <div className="space-y-2">
+                                    <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider block">Enviar Presente Cortesia</span>
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                      {/* Select Target User */}
+                                      <select
+                                        value={botGiftReceiverId}
+                                        onChange={(e) => setBotGiftReceiverId(e.target.value)}
+                                        className="bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
+                                      >
+                                        <option value="">-- Destinatário --</option>
+                                        {db.room_participants
+                                          .filter(p => p.sala_id === bot.currentRoomId && !p.user_id.startsWith('bot_'))
+                                          .map(p => {
+                                            const u = db.profiles.find(pr => pr.id === p.user_id);
+                                            return (
+                                              <option key={p.id} value={p.user_id}>@{u?.username || 'Anônimo'}</option>
+                                            );
+                                          })}
+                                      </select>
+
+                                      {/* Select Gift */}
+                                      <select
+                                        value={botGiftId}
+                                        onChange={(e) => setBotGiftId(e.target.value)}
+                                        className="bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none"
+                                      >
+                                        {api.getGifts()
+                                          .filter(g => g.valor <= 5)
+                                          .map(g => (
+                                            <option key={g.id} value={g.id}>{g.imagem} {g.nome} ({g.valor} MZN)</option>
+                                          ))}
+                                      </select>
+
+                                      <button
+                                        onClick={() => handleForceSendGift(bot.id)}
+                                        className="bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-xs py-1 rounded-md font-bold transition uppercase flex items-center justify-center gap-1"
+                                      >
+                                        <Gift className="h-3.5 w-3.5" /> Gifting
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Option 4: Force post on feed */}
+                                {botActionType === 'feed' && (
+                                  <div className="space-y-2">
+                                    <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider block">Forçar publicação no Feed (Status Social)</span>
+                                    <div className="flex gap-2">
+                                      <input
+                                        type="text"
+                                        value={botFeedText}
+                                        onChange={(e) => setBotFeedText(e.target.value)}
+                                        placeholder="No que o robô está pensando hoje para publicar?"
+                                        className="flex-1 bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
+                                        onKeyDown={(e) => e.key === 'Enter' && handleForcePostFeed(bot.id)}
+                                      />
+                                      <button
+                                        onClick={() => handleForcePostFeed(bot.id)}
+                                        className="bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-xs px-4 py-1 rounded-md font-bold transition uppercase"
+                                      >
+                                        Publicar Feed
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+
+                              </div>
                             )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Terminal Logs (4 cols) */}
+                  <div className="lg:col-span-4 flex flex-col min-h-0 border border-slate-850 bg-slate-950/40 rounded-xl overflow-hidden">
+                    <div className="px-4 py-2.5 bg-slate-950/60 border-b border-slate-850 flex items-center justify-between font-semibold">
+                      <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                        <Radio className="h-3 w-3 text-pink-400 animate-pulse" /> Logs em Tempo Real
+                      </span>
+                      <button
+                        onClick={() => {
+                          localStorage.setItem('fcfunz_bots_logs', JSON.stringify([]));
+                          setBotLogs([]);
+                        }}
+                        className="text-[8px] font-mono font-bold bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800 px-2 py-0.5 rounded transition uppercase"
+                      >
+                        Limpar
+                      </button>
+                    </div>
+
+                    <div className="flex-1 p-3 overflow-y-auto font-mono text-[10px] space-y-2.5 bg-slate-950/80 scrollbar-thin scrollbar-thumb-slate-800 text-slate-300 pr-1 select-text">
+                      {botLogs.length === 0 ? (
+                        <div className="text-center py-16 text-slate-600 italic">
+                          [Nenhuma atividade registrada ainda]
+                        </div>
+                      ) : (
+                        botLogs.map((log) => (
+                          <div key={log.id} className="border-b border-slate-900/60 pb-1.5 last:border-0 leading-relaxed">
+                            <span className="text-slate-500">[{new Date(log.timestamp).toLocaleTimeString('pt-MZ')}]</span>{' '}
+                            <span className="text-indigo-400 font-bold">@{log.botUsername}</span>{' '}
+                            <span className="text-slate-100 font-semibold">({log.action})</span>
+                            {log.roomName && (
+                              <span className="text-pink-400"> na sala [{log.roomName}]</span>
+                            )}
+                            <p className="text-slate-400 pl-4 mt-0.5 text-[9.5px] border-l border-slate-800 bg-slate-950/30 py-0.5 rounded">
+                              {log.details}
+                            </p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            )}
+
+            {activeBotTab === 'mod' && (
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                <div className="px-4 py-3 bg-slate-950/40 border border-slate-850/60 rounded-xl mb-4 shrink-0">
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Para manter o chat e a timeline limpos e seguros, as ações autônomas dos robôs (como comentários casuais nas salas de chat ou anúncios publicitários) são enviadas para a fila de moderação. Aprove abaixo para dispará-las imediatamente ou rejeite-as se não forem oportunas.
+                  </p>
+                </div>
+
+                <div className="flex-1 overflow-y-auto space-y-3 pr-1 pb-4">
+                  {botActions.filter(a => a.status === 'pending').length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-slate-500 italic border border-dashed border-slate-800 rounded-xl bg-slate-950/20">
+                      <Cpu className="h-8 w-8 text-slate-600 mb-2 animate-pulse" />
+                      Não há ações de robôs pendentes de aprovação no momento.
+                    </div>
+                  ) : (
+                    botActions.filter(a => a.status === 'pending').map((act) => (
+                      <div key={act.id} className="p-4 rounded-xl border border-slate-850 bg-slate-900/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="flex items-start gap-3 flex-1 min-w-0">
+                          <div className="h-9 w-9 rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0 font-bold text-sm">
+                            🤖
+                          </div>
+                          <div className="space-y-1 flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-bold text-slate-200">@{act.bot_username}</span>
+                              <span className={`text-[8px] font-bold font-mono px-1.5 py-0.2 rounded border uppercase ${
+                                act.type === 'ad' 
+                                  ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' 
+                                  : 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400'
+                              }`}>
+                                {act.type === 'ad' ? 'Publicidade' : 'Comentário'}
+                              </span>
+                              {act.sala_nome && (
+                                <span className="text-[10px] text-pink-400 bg-pink-500/5 px-2 py-0.5 rounded border border-pink-500/10 font-medium">
+                                  Sala: {act.sala_nome}
+                                </span>
+                              )}
+                              <span className="text-[9px] text-slate-500 font-mono">
+                                {new Date(act.created_at).toLocaleTimeString('pt-MZ')}
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-300 font-sans leading-relaxed bg-slate-950/40 p-2.5 rounded-lg border border-slate-950 break-words">
+                              {act.content}
+                            </p>
                           </div>
                         </div>
 
-                        {/* Expandable actions panel */}
-                        {isBotActionOpen && (
-                          <div className="p-3.5 rounded-lg bg-slate-950/40 border border-slate-850 text-xs text-slate-300 space-y-3">
-                            <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-850">
-                              <button
-                                onClick={() => setBotActionType('enter')}
-                                className={`flex-1 text-center py-1 rounded font-mono text-[9px] font-bold transition uppercase ${
-                                  botActionType === 'enter' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
-                                }`}
-                              >
-                                Sala 🚪
-                              </button>
-                              <button
-                                onClick={() => setBotActionType('speak')}
-                                className={`flex-1 text-center py-1 rounded font-mono text-[9px] font-bold transition uppercase ${
-                                  botActionType === 'speak' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
-                                }`}
-                              >
-                                Falar 💬
-                              </button>
-                              <button
-                                onClick={() => setBotActionType('gift')}
-                                className={`flex-1 text-center py-1 rounded font-mono text-[9px] font-bold transition uppercase ${
-                                  botActionType === 'gift' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
-                                }`}
-                              >
-                                Presente 🎁
-                              </button>
-                              <button
-                                onClick={() => setBotActionType('feed')}
-                                className={`flex-1 text-center py-1 rounded font-mono text-[9px] font-bold transition uppercase ${
-                                  botActionType === 'feed' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
-                                }`}
-                              >
-                                Timeline 📱
-                              </button>
-                            </div>
-
-                            {/* Option 1: Join room */}
-                            {botActionType === 'enter' && (
-                              <div className="space-y-2">
-                                <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider block">Forçar entrada em Sala</span>
-                                <div className="flex gap-2">
-                                  <select
-                                    value={botEnterRoomId}
-                                    onChange={(e) => setBotEnterRoomId(e.target.value)}
-                                    className="flex-1 bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 font-mono"
-                                  >
-                                    <option value="">-- Escolher Sala --</option>
-                                    {rooms.map(r => (
-                                      <option key={r.id} value={r.id}>{r.nome} ({db.room_participants.filter(p => p.sala_id === r.id).length} ativos)</option>
-                                    ))}
-                                  </select>
-                                  <button
-                                    onClick={() => handleForceEnterRoom(bot.id)}
-                                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-xs px-4 py-1 rounded-md font-bold transition uppercase"
-                                  >
-                                    Ir para Sala
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Option 2: Force speak */}
-                            {botActionType === 'speak' && (
-                              <div className="space-y-2">
-                                <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider block">Forçar envio de Mensagem (no Chat)</span>
-                                <div className="flex gap-2">
-                                  <input
-                                    type="text"
-                                    value={botSpeakText}
-                                    onChange={(e) => setBotSpeakText(e.target.value)}
-                                    placeholder="Digite o que o robô falará na sala..."
-                                    className="flex-1 bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
-                                    onKeyDown={(e) => e.key === 'Enter' && handleForceSpeak(bot.id)}
-                                  />
-                                  <button
-                                    onClick={() => handleForceSpeak(bot.id)}
-                                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-xs px-4 py-1 rounded-md font-bold transition uppercase flex items-center gap-1"
-                                  >
-                                    <Send className="h-3 w-3" /> Falar
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Option 3: Force gift */}
-                            {botActionType === 'gift' && (
-                              <div className="space-y-2">
-                                <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider block">Enviar Presente Cortesia</span>
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                                  {/* Select Target User */}
-                                  <select
-                                    value={botGiftReceiverId}
-                                    onChange={(e) => setBotGiftReceiverId(e.target.value)}
-                                    className="bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
-                                  >
-                                    <option value="">-- Destinatário --</option>
-                                    {db.room_participants
-                                      .filter(p => p.sala_id === bot.currentRoomId && !p.user_id.startsWith('bot_'))
-                                      .map(p => {
-                                        const u = db.profiles.find(pr => pr.id === p.user_id);
-                                        return (
-                                          <option key={p.id} value={p.user_id}>@{u?.username || 'Anônimo'}</option>
-                                        );
-                                      })}
-                                  </select>
-
-                                  {/* Select Gift */}
-                                  <select
-                                    value={botGiftId}
-                                    onChange={(e) => setBotGiftId(e.target.value)}
-                                    className="bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none"
-                                  >
-                                    {api.getGifts()
-                                      .filter(g => g.valor <= 5)
-                                      .map(g => (
-                                        <option key={g.id} value={g.id}>{g.imagem} {g.nome} ({g.valor} MZN)</option>
-                                      ))}
-                                  </select>
-
-                                  <button
-                                    onClick={() => handleForceSendGift(bot.id)}
-                                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-xs py-1 rounded-md font-bold transition uppercase flex items-center justify-center gap-1"
-                                  >
-                                    <Gift className="h-3.5 w-3.5" /> Gifting
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Option 4: Force post on feed */}
-                            {botActionType === 'feed' && (
-                              <div className="space-y-2">
-                                <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider block">Forçar publicação no Feed (Status Social)</span>
-                                <div className="flex gap-2">
-                                  <input
-                                    type="text"
-                                    value={botFeedText}
-                                    onChange={(e) => setBotFeedText(e.target.value)}
-                                    placeholder="No que o robô está pensando hoje para publicar?"
-                                    className="flex-1 bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
-                                    onKeyDown={(e) => e.key === 'Enter' && handleForcePostFeed(bot.id)}
-                                  />
-                                  <button
-                                    onClick={() => handleForcePostFeed(bot.id)}
-                                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-xs px-4 py-1 rounded-md font-bold transition uppercase"
-                                  >
-                                    Publicar Feed
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Terminal Logs (4 cols) */}
-              <div className="lg:col-span-4 flex flex-col min-h-0 border border-slate-850 bg-slate-950/40 rounded-xl overflow-hidden">
-                <div className="px-4 py-2.5 bg-slate-950/60 border-b border-slate-850 flex items-center justify-between font-semibold">
-                  <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                    <Radio className="h-3 w-3 text-pink-400 animate-pulse" /> Logs em Tempo Real
-                  </span>
-                  <button
-                    onClick={() => {
-                      localStorage.setItem('fcfunz_bots_logs', JSON.stringify([]));
-                      setBotLogs([]);
-                    }}
-                    className="text-[8px] font-mono font-bold bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800 px-2 py-0.5 rounded transition uppercase"
-                  >
-                    Limpar
-                  </button>
-                </div>
-
-                <div className="flex-1 p-3 overflow-y-auto font-mono text-[10px] space-y-2.5 bg-slate-950/80 scrollbar-thin scrollbar-thumb-slate-800 text-slate-300 pr-1 select-text">
-                  {botLogs.length === 0 ? (
-                    <div className="text-center py-16 text-slate-600 italic">
-                      [Nenhuma atividade registrada ainda]
-                    </div>
-                  ) : (
-                    botLogs.map((log) => (
-                      <div key={log.id} className="border-b border-slate-900/60 pb-1.5 last:border-0 leading-relaxed">
-                        <span className="text-slate-500">[{new Date(log.timestamp).toLocaleTimeString('pt-MZ')}]</span>{' '}
-                        <span className="text-indigo-400 font-bold">@{log.botUsername}</span>{' '}
-                        <span className="text-slate-100 font-semibold">({log.action})</span>
-                        {log.roomName && (
-                          <span className="text-pink-400"> na sala [{log.roomName}]</span>
-                        )}
-                        <p className="text-slate-400 pl-4 mt-0.5 text-[9.5px] border-l border-slate-800 bg-slate-950/30 py-0.5 rounded">
-                          {log.details}
-                        </p>
+                        <div className="flex items-center gap-2 shrink-0 md:self-center self-end">
+                          <button
+                            type="button"
+                            onClick={() => handleRejectBotAction(act.id)}
+                            className="px-3 py-1.5 bg-red-950/40 hover:bg-red-900/30 text-red-400 border border-red-900/30 text-[10px] font-bold font-mono rounded-lg transition flex items-center gap-1 uppercase"
+                          >
+                            <X className="h-3 w-3" /> Rejeitar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleApproveBotAction(act.id)}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-extrabold font-mono rounded-lg transition shadow-md shadow-emerald-600/10 flex items-center gap-1 uppercase"
+                          >
+                            <Check className="h-3 w-3" /> Aprovar Ação
+                          </button>
+                        </div>
                       </div>
                     ))
                   )}
                 </div>
               </div>
+            )}
 
-            </div>
           </div>
         )}
 

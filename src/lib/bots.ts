@@ -1,25 +1,5 @@
-import { db, api, notifyUpdate } from './supabase';
-import { Profile, Mensagem, Gift, Tweet } from '../types';
-
-export interface BotConfig {
-  id: string;
-  username: string;
-  nome: string;
-  sobrenome: string;
-  avatar_url: string;
-  cargo: string;
-  bio: string;
-  type: 'social' | 'presenteador' | 'movimentador' | 'respondedor';
-  personality: 'extrovertido' | 'timido' | 'engracado' | 'ajudante' | 'curioso';
-  active: boolean; // Autonomous mode status
-  dailyBudget: number; // max credits for simulated gifting per day
-  spentToday: number;
-  currentRoomId: string | null;
-  enteredAt: string | null;
-  ticksInRoom: number;
-  ticksSinceLastMessage?: number;
-  lastMessageAt?: string | null;
-}
+import { db, api, notifyUpdate, INITIAL_BOT_CONFIGS } from './supabase';
+import { Profile, Mensagem, Gift, Tweet, BotConfig, BotAction } from '../types';
 
 export interface BotLog {
   id: string;
@@ -31,111 +11,30 @@ export interface BotLog {
   details: string;
 }
 
-// Initial predefined bots
-const INITIAL_BOTS: BotConfig[] = [
-  {
-    id: 'bot_u_mari',
-    username: 'Mari_Social',
-    nome: 'Mariana',
-    sobrenome: 'Silva',
-    avatar_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-    cargo: 'Verified User',
-    bio: 'Adoro fazer novos amigos e espalhar energia positiva! ✨ Vamos papear?',
-    type: 'social',
-    personality: 'extrovertido',
-    active: true,
-    dailyBudget: 50,
-    spentToday: 0,
-    currentRoomId: null,
-    enteredAt: null,
-    ticksInRoom: 0
-  },
-  {
-    id: 'bot_u_lucas',
-    username: 'LucasCurioso',
-    nome: 'Lucas',
-    sobrenome: 'Matusse',
-    avatar_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150',
-    cargo: 'Lucky User',
-    bio: 'Sempre curioso. Gosto de fazer perguntas e descobrir coisas novas. 🧐',
-    type: 'social',
-    personality: 'curioso',
-    active: true,
-    dailyBudget: 40,
-    spentToday: 0,
-    currentRoomId: null,
-    enteredAt: null,
-    ticksInRoom: 0
-  },
-  {
-    id: 'bot_u_gamerx',
-    username: 'GamerX_MZ',
-    nome: 'Nélio',
-    sobrenome: 'Chambone',
-    avatar_url: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-    cargo: 'Lucky User',
-    bio: 'Viciado em jogos e piadas ruins! Rir é o melhor remédio kkkk 🎮🎲',
-    type: 'movimentador',
-    personality: 'engracado',
-    active: true,
-    dailyBudget: 30,
-    spentToday: 0,
-    currentRoomId: null,
-    enteredAt: null,
-    ticksInRoom: 0
-  },
-  {
-    id: 'bot_u_ajudante',
-    username: 'Guia_FCFUNZ',
-    nome: 'Ajudante',
-    sobrenome: 'Oficial',
-    avatar_url: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150',
-    cargo: 'Guide',
-    bio: 'Olá! Sou o Guia oficial do FCFUNZ. Dúvidas sobre o chat, pontos ou MPoints? Só chamar! 💡',
-    type: 'respondedor',
-    personality: 'ajudante',
-    active: true,
-    dailyBudget: 100,
-    spentToday: 0,
-    currentRoomId: null,
-    enteredAt: null,
-    ticksInRoom: 0
-  },
-  {
-    id: 'bot_u_timida',
-    username: 'Bela_Timida',
-    nome: 'Anabela',
-    sobrenome: 'Macuacua',
-    avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-    cargo: 'Unverified User',
-    bio: 'Um pouco tímida... mas gosto de ler as conversas e dar opiniões de vez em quando. 😊',
-    type: 'social',
-    personality: 'timido',
-    active: true,
-    dailyBudget: 20,
-    spentToday: 0,
-    currentRoomId: null,
-    enteredAt: null,
-    ticksInRoom: 0
-  },
-  {
-    id: 'bot_u_prestigio',
-    username: 'Prestigio_Bot',
-    nome: 'Rei',
-    sobrenome: 'Do_Papo',
-    avatar_url: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150',
-    cargo: 'Super Merchant',
-    bio: 'Gosto de presentear quem mantém o chat ativo! Generosidade gera generosidade. 🔥🎁',
-    type: 'presenteador',
-    personality: 'extrovertido',
-    active: true,
-    dailyBudget: 150,
-    spentToday: 0,
-    currentRoomId: null,
-    enteredAt: null,
-    ticksInRoom: 0
-  }
-];
+const INITIAL_BOTS = INITIAL_BOT_CONFIGS;
+
+export const CARGO_SCHEDULED_TEMPLATES: Record<string, string[]> = {
+  'Guide': [
+    'Olá a todos! Se precisarem de ajuda para usar o chat, obter créditos ou MPoints, podem falar com a Staff oficial! 💡',
+    'Lembrete: MPoints são ganhos estando online no chat. 10 minutos online = 1 MPoint! Use /mpoint nas salas para ver seu saldo. 🎁',
+    'Dica de segurança: Nunca forneça sua senha ou PIN do Merchant para ninguém. A Staff nunca irá pedir seus dados de login!'
+  ],
+  'Super Merchant': [
+    'Estou vendendo créditos FCFUNZ de forma rápida e segura via E-Mola e M-Pesa. Entre em contato comigo para recarregar com as melhores taxas do mercado! 💳🔥',
+    'Precisa de créditos rápidos para presentear seus amigos ou jogar dados? Sou Merchant oficial autorizado! Atendimento 24/7.',
+    'Compre créditos direto comigo de forma honesta. Evite intermediários desconhecidos para não cair em golpes!'
+  ],
+  'Support': [
+    'Aviso de suporte: Caso encontre alguma irregularidade ou queira denunciar comportamentos ofensivos, use a Central de Denâncias ou fale diretamente com um Admin.',
+    'Dica: Adicione segurança à sua conta configurando a pergunta secreta e o seu PIN de Merchant no seu Perfil!',
+    'Para depósitos e saques rápidos, utilize sempre a nossa lista de Merchants Autorizados visíveis no Marketplace.'
+  ],
+  'Verified User': [
+    'Gente, o FCFUNZ é o melhor app de Moçambique! Sempre tem ótimas conversas aqui nas salas. 🇲🇿❤️',
+    'Alguém afim de disputar uma partida de dados multiplayer valendo créditos? Só criar a mesa e chamar!',
+    'Amo presentear as pessoas legais do chat. Vamos interagir e agitar as salas!'
+  ]
+};
 
 // Personalised dialog elements
 const DIALOGS = {
@@ -312,60 +211,29 @@ class BotOrchestrator {
 
   // Load state from localStorage or seed
   private loadState() {
-    if (typeof window !== 'undefined') {
-      const storedBots = localStorage.getItem('fcfunz_bots_config');
-      if (storedBots) {
-        this.bots = JSON.parse(storedBots);
-      } else {
-        this.bots = [...INITIAL_BOTS];
-        this.saveState();
-      }
+    this.bots = db.botConfigs;
+    if (this.bots.length === 0) {
+      db.botConfigs = JSON.parse(JSON.stringify(INITIAL_BOTS));
+      this.bots = db.botConfigs;
+      db.save();
+    }
 
+    if (typeof window !== 'undefined') {
       const storedLogs = localStorage.getItem('fcfunz_bots_logs');
       this.logs = storedLogs ? JSON.parse(storedLogs) : [];
-    } else {
-      this.bots = [...INITIAL_BOTS];
     }
   }
 
   private saveState() {
+    db.botConfigs = this.bots;
+    db.save();
     if (typeof window !== 'undefined') {
-      localStorage.setItem('fcfunz_bots_config', JSON.stringify(this.bots));
       localStorage.setItem('fcfunz_bots_logs', JSON.stringify(this.logs));
     }
   }
 
-  // Seed bot accounts into global db.profiles so they render correctly in UI
   private seedBotProfiles() {
-    let changed = false;
-    this.bots.forEach(bot => {
-      const exists = db.profiles.find(p => p.id === bot.id);
-      if (!exists) {
-        const botProfile: Profile = {
-          id: bot.id,
-          username: bot.username,
-          nome: bot.nome,
-          sobrenome: bot.sobrenome,
-          pais: 'MZ',
-          sexo: 'M',
-          avatar_url: bot.avatar_url,
-          cargo: bot.cargo as any,
-          nivel: 10,
-          xp: 1500,
-          credits: 1000,
-          bonus: 0,
-          points: 500,
-          mpoint: 50,
-          criado_em: new Date().toISOString()
-        };
-        db.profiles.push(botProfile);
-        changed = true;
-      }
-    });
-
-    if (changed) {
-      db.save();
-    }
+    db.ensureBotProfiles();
   }
 
   // Get current bots
@@ -866,8 +734,19 @@ class BotOrchestrator {
           continue;
         }
 
-        // Action 3: Post a social random comment
-        const speakProb = bot.personality === 'extrovertido' ? 0.35 : (bot.personality === 'timido' ? 0.12 : 0.25);
+        // Action 3: Scheduled cargo-based announcement (chance per tick, e.g. 15%)
+        const schedProb = 0.15;
+        if (Math.random() < schedProb) {
+          const cargoTemplates = CARGO_SCHEDULED_TEMPLATES[bot.cargo] || CARGO_SCHEDULED_TEMPLATES['Verified User'];
+          const text = cargoTemplates[Math.floor(Math.random() * cargoTemplates.length)];
+          
+          await api.createBotAction(bot.id, bot.username, 'message', text, roomId, roomName);
+          this.addLog(bot.id, 'Solicitou Mensagem Agendada', roomId, `Solicitou mensagem (${bot.cargo}): "${text.substring(0, 30)}..."`);
+          continue;
+        }
+
+        // Action 4: Post a social random comment (requires admin approval)
+        const speakProb = bot.personality === 'extrovertido' ? 0.30 : (bot.personality === 'timido' ? 0.10 : 0.20);
         if (Math.random() < speakProb) {
           const dialogList = DIALOGS[bot.personality].random;
           let text = dialogList[Math.floor(Math.random() * dialogList.length)];
@@ -892,11 +771,11 @@ class BotOrchestrator {
             }
           }
           
-          await api.sendMessage(roomId, text, 'normal', undefined, bot.id, targetBotId);
-          this.addLog(bot.id, 'Falou na sala', roomId, `Fez comentário casual: "${text.substring(0, 30)}..."`);
+          await api.createBotAction(bot.id, bot.username, 'message', text, roomId, roomName);
+          this.addLog(bot.id, 'Solicitou Comentário', roomId, `Solicitou comentário casual: "${text.substring(0, 30)}..."`);
         }
 
-        // Action 3: Courtesy Gift Integration
+        // Action 5: Courtesy Gift Integration
         // Bots presentadores or extroverts can gift real users if active
         if (bot.type === 'presenteador' || bot.personality === 'extrovertido') {
           const giftProb = bot.type === 'presenteador' ? 0.18 : 0.05;
@@ -926,7 +805,7 @@ class BotOrchestrator {
       }
     }
 
-    // C. Post random tweets to timeline occasionally
+    // C. Post random tweets to timeline occasionally (requires admin approval)
     const tweetProb = 0.08; // 8% chance per tick that some active bot posts a status
     if (Math.random() < tweetProb) {
       const luckyBot = activeBots[Math.floor(Math.random() * activeBots.length)];
@@ -934,7 +813,8 @@ class BotOrchestrator {
         const dialogList = DIALOGS[luckyBot.personality].random;
         const text = dialogList[Math.floor(Math.random() * dialogList.length)];
         
-        await this.forcePostFeed(luckyBot.id, text);
+        await api.createBotAction(luckyBot.id, luckyBot.username, 'ad', text);
+        this.addLog(luckyBot.id, 'Solicitou Publicidade/Post', null, `Solicitou postagem de anúncio: "${text.substring(0, 30)}..."`);
       }
     }
 

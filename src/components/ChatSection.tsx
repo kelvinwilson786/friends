@@ -166,16 +166,6 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
       const seedParticipants = onlineUsers.filter(u => {
         if (u.id === currentUser.id) return true;
         
-        // Only see friends or official users
-        const isFriend = db.amizades.some(a => 
-          a.status === 'aceito' && 
-          ((a.solicitante_id === currentUser.id && a.destinatario_id === u.id) || 
-           (a.solicitante_id === u.id && a.destinatario_id === currentUser.id))
-        );
-        const isOfficial = ['Founder', 'Global Admin', 'Mentor', 'Mentor Head', 'Staff', 'Guide', 'Chatroom Moderator', 'Chatroom Manager', 'Merchant'].includes(u.cargo);
-
-        if (!isFriend && !isOfficial) return false;
-
         // Seed users assigned statically to make room feel alive
         const userRoomMap: Record<string, string> = {
           'u2': 's1', // Carlos_Mentor
@@ -188,18 +178,8 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
       return seedParticipants;
     }
 
-    // Filter room users by: friends or official users as requested (with bots always allowed)
-    return profilesInRoom.filter(u => {
-      if (u.id === currentUser.id) return true;
-      if (u.id.startsWith('bot_')) return true; // Keep all bots!
-      const isFriend = db.amizades.some(a => 
-        a.status === 'aceito' && 
-        ((a.solicitante_id === currentUser.id && a.destinatario_id === u.id) || 
-         (a.solicitante_id === u.id && a.destinatario_id === currentUser.id))
-      );
-      const isOfficial = ['Founder', 'Global Admin', 'Mentor', 'Mentor Head', 'Staff', 'Guide', 'Chatroom Moderator', 'Chatroom Manager', 'Merchant'].includes(u.cargo);
-      return isFriend || isOfficial;
-    });
+    // Since everyone is friends by default under the AMIGOS model, return all profiles in this room
+    return profilesInRoom;
   };
 
   const roomUsers = getRoomUsers();

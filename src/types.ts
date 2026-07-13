@@ -407,6 +407,11 @@ export interface Tweet {
   comments_count: number; // default 0
   created_at: string;
   updated_at: string;
+  // Extra ad/publicidade fields
+  dias?: number;
+  valor_pago?: number;
+  status?: 'pending' | 'active' | 'expired' | 'rejected';
+  expira_em?: string;
   // Extra client fields
   author_username?: string;
   author_avatar?: string | null;
@@ -535,6 +540,7 @@ export interface Anuncio {
   criado_em: string;
   expira_em: string;
   status: 'pending' | 'active' | 'expired' | 'rejected';
+  image_url?: string | null;
 }
 
 export interface P2POrder {
@@ -559,6 +565,40 @@ export interface P2POrder {
 export interface MerchantRate {
   merchant_id: string;
   rate: number;
+}
+
+export interface BotConfig {
+  id: string;
+  username: string;
+  nome: string;
+  sobrenome: string;
+  avatar_url: string;
+  cargo: string;
+  bio: string;
+  type: 'social' | 'presenteador' | 'movimentador' | 'respondedor';
+  personality: 'extrovertido' | 'timido' | 'engracado' | 'ajudante' | 'curioso';
+  active: boolean;
+  dailyBudget: number;
+  spentToday: number;
+  currentRoomId: string | null;
+  enteredAt: string | null;
+  ticksInRoom: number;
+  ticksSinceLastMessage?: number;
+  lastMessageAt?: string | null;
+  password?: string;
+}
+
+export interface BotAction {
+  id: string;
+  bot_id: string;
+  bot_username: string;
+  type: 'message' | 'ad';
+  sala_id?: string;
+  sala_nome?: string;
+  content: string;
+  image_url?: string | null;
+  created_at: string;
+  status: 'pending' | 'approved' | 'rejected';
 }
 
 

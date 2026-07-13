@@ -1,59 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { api } from '../lib/supabase';
-import { Anuncio } from '../types';
-import { Sparkles, Megaphone, ShieldCheck } from 'lucide-react';
+import React from 'react';
+import { ShieldCheck } from 'lucide-react';
 
 interface FooterProps {
   isUserLoggedIn: boolean;
-  onGoToMarketplace?: () => void;
 }
 
-export default function Footer({ isUserLoggedIn, onGoToMarketplace }: FooterProps) {
-  const [activeAd, setActiveAd] = useState<Anuncio | null>(null);
-  const [adsList, setAdsList] = useState<Anuncio[]>([]);
-
-  useEffect(() => {
-    if (!isUserLoggedIn) {
-      setActiveAd(null);
-      return;
-    }
-
-    const fetchAds = async () => {
-      try {
-        const ads = await api.getAnuncios();
-        setAdsList(ads);
-        if (ads.length > 0) {
-          // Select one random active ad
-          const randomIndex = Math.floor(Math.random() * ads.length);
-          const selectedAd = ads[randomIndex];
-          setActiveAd(selectedAd);
-        } else {
-          setActiveAd(null);
-        }
-      } catch (err) {
-        console.error('Erro ao buscar anúncios para o rodapé:', err);
-      }
-    };
-
-    fetchAds();
-    // Rotate ads occasionally (every 20 seconds for more dynamic rotation)
-    const interval = setInterval(fetchAds, 20000);
-    return () => clearInterval(interval);
-  }, [isUserLoggedIn]);
-
-  // Track view count increment once per ad selection
-  useEffect(() => {
-    if (activeAd) {
-      api.incrementAnuncioViews(activeAd.id).catch(err => {
-        console.error('Erro ao incrementar visualizações do anúncio:', err);
-      });
-    }
-  }, [activeAd?.id]);
-
+export default function Footer({ isUserLoggedIn }: FooterProps) {
   const currentYear = new Date().getFullYear();
 
   return (
-    <footer className="w-full bg-slate-950/95 border-t border-slate-800 py-2 px-4 sm:px-6 lg:px-8 font-sans transition-all duration-300 backdrop-blur-md">
+    <footer className="w-full bg-slate-950/95 border-t border-slate-800 py-4 px-4 sm:px-6 lg:px-8 font-sans transition-all duration-300 backdrop-blur-md">
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
         
         {/* Left Side: Logo and Copyright (AMIGOS rebranding integration) */}
@@ -71,35 +27,12 @@ export default function Footer({ isUserLoggedIn, onGoToMarketplace }: FooterProp
           </p>
         </div>
 
-        {/* Center: Beautifully styled active ad widget with fixed height/no-stretch constraints */}
+        {/* Center: Re-branded "AMIGOS" active motto line */}
         {isUserLoggedIn && (
-          <div className="flex-1 max-w-xl w-full bg-gradient-to-r from-slate-950/60 via-indigo-950/10 to-slate-950/60 border border-indigo-500/25 rounded-lg p-1.5 px-3 flex items-center gap-2.5 backdrop-blur-sm shadow-md transition-all duration-300 hover:border-indigo-500/40 min-w-0">
-            <div className="flex items-center gap-1 shrink-0 text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-md px-1.5 py-0.5 text-[8px] font-extrabold uppercase tracking-widest animate-pulse shadow-[0_0_8px_rgba(245,158,11,0.15)]">
-              <Megaphone className="h-2.5 w-2.5 text-amber-400" /> Pub
-            </div>
-            
-            <div className="flex-1 min-w-0">
-              {activeAd ? (
-                <div className="flex items-center justify-between gap-3 w-full text-left min-w-0">
-                  <span className="text-[11px] text-slate-200 font-medium truncate flex-1 block" title={activeAd.texto}>
-                    {activeAd.texto}
-                  </span>
-                  <span className="text-[8px] text-indigo-300 bg-indigo-600/10 border border-indigo-500/20 px-1.5 py-0.5 rounded-full font-bold shrink-0 font-mono">
-                    por @{activeAd.autor_username} • {activeAd.visualizacoes} views 🚀
-                  </span>
-                </div>
-              ) : (
-                <div className="text-[10px] text-slate-500 italic flex items-center justify-between w-full min-w-0 gap-2">
-                  <span className="truncate flex-1">Espaço para anúncios virtuais ativo.</span>
-                  <button 
-                    onClick={onGoToMarketplace}
-                    className="text-indigo-400 hover:underline hover:text-indigo-300 not-italic font-bold inline-flex items-center gap-1 cursor-pointer hover:scale-105 transition duration-150 text-[10px] shrink-0"
-                  >
-                    Anuncie aqui por 50 MZN <Sparkles className="h-2.5 w-2.5 text-pink-400 animate-pulse" />
-                  </button>
-                </div>
-              )}
-            </div>
+          <div className="flex-1 max-w-xl w-full text-center py-1 flex items-center justify-center gap-2">
+            <span className="text-[10px] text-indigo-400 font-mono tracking-wider uppercase font-bold animate-pulse">
+              🤝 AMIGOS • O lema é Amizade Sem Fronteiras
+            </span>
           </div>
         )}
 

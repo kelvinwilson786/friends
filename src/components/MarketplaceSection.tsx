@@ -69,6 +69,7 @@ export default function MarketplaceSection({ onGoToChat }: MarketplaceSectionPro
   // Anúncio Form
   const [adText, setAdText] = useState('');
   const [adDuration, setAdDuration] = useState<number>(1);
+  const [adImage, setAdImage] = useState('');
   const [allAds, setAllAds] = useState<Anuncio[]>([]);
   
   // Feedback Messages
@@ -251,6 +252,7 @@ export default function MarketplaceSection({ onGoToChat }: MarketplaceSectionPro
     if (dias === 1) return 50;
     if (dias === 3) return 120;
     if (dias === 7) return 250;
+    if (dias === 30) return 1000;
     return 50 * dias;
   };
 
@@ -276,9 +278,10 @@ export default function MarketplaceSection({ onGoToChat }: MarketplaceSectionPro
     }
 
     try {
-      await api.createAnuncio(adText, adDuration, custo);
-      setSuccessMsg(`📢 Anúncio publicado com sucesso! Ele será exibido de forma aleatória no rodapé por ${adDuration} dia(s).`);
+      await api.createAnuncio(adText, adDuration, custo, adImage.trim() || null);
+      setSuccessMsg(`📢 Anúncio enviado com sucesso! Assim que for aprovado pela Staff, ele será exibido de forma aleatória no Feed de Publicidades e no rodapé por ${adDuration} dia(s).`);
       setAdText('');
+      setAdImage('');
       loadData();
     } catch (err: any) {
       setErrorMsg(err.message || 'Erro ao criar o anúncio.');
@@ -1122,11 +1125,12 @@ export default function MarketplaceSection({ onGoToChat }: MarketplaceSectionPro
                     <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-2">
                       Duração & Custo
                     </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                       {[
                         { dias: 1, label: '1 Dia', custo: 50, desc: 'Ideal para um teste rápido' },
                         { dias: 3, label: '3 Dias', custo: 120, desc: 'Economize 30 MZN' },
-                        { dias: 7, label: '1 Semana', custo: 250, desc: 'Destaque contínuo, salve 100 MZN' }
+                        { dias: 7, label: '1 Semana', custo: 250, desc: 'Destaque contínuo' },
+                        { dias: 30, label: '1 Mês (Premium)', custo: 1000, desc: 'Melhor alcance de público' }
                       ].map(opt => (
                         <button
                           type="button"
@@ -1150,6 +1154,23 @@ export default function MarketplaceSection({ onGoToChat }: MarketplaceSectionPro
                         </button>
                       ))}
                     </div>
+                  </div>
+
+                  {/* IMAGE URL INPUT */}
+                  <div>
+                    <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1.5">
+                      Imagem da Publicidade (URL Opcional) 🖼️
+                    </label>
+                    <input
+                      type="url"
+                      value={adImage}
+                      onChange={(e) => setAdImage(e.target.value)}
+                      placeholder="https://images.unsplash.com/photo-..."
+                      className="w-full rounded-xl bg-slate-950 border border-slate-850 p-3 text-xs text-slate-200 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-sans"
+                    />
+                    <span className="text-[10px] text-slate-500 mt-1 block">
+                      Deixe em branco para uma publicidade apenas de texto. Use um link público de imagem.
+                    </span>
                   </div>
 
                   {/* SUBMIT BUTTON */}

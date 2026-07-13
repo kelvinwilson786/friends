@@ -314,6 +314,7 @@ export default function App() {
       });
       
       localStorage.setItem('fcfunz_auth_completed', 'true');
+      setCurrentUser(p);
       setIsRegistered(true);
     } catch (err: any) {
       setAuthError(err.message || 'Erro ao criar conta.');
@@ -332,6 +333,7 @@ export default function App() {
     try {
       const profile = await api.signInUser(loginUsername, loginPassword);
       localStorage.setItem('fcfunz_auth_completed', 'true');
+      setCurrentUser(profile);
       setIsRegistered(true);
     } catch (err: any) {
       setAuthError(err.message || 'Erro ao realizar login.');
@@ -350,6 +352,7 @@ export default function App() {
     } catch (err) {
       console.error('Logout error:', err);
     }
+    setCurrentUser(null);
     setIsRegistered(false);
   };
 
@@ -732,7 +735,7 @@ export default function App() {
               >
                 <Award className="h-4 w-4 text-purple-400" /> Emblemas & Patentes
               </button>
-              {(currentUser.cargo === 'Founder' || currentUser.cargo === 'Global Admin') && (
+              {(currentUser?.cargo === 'Founder' || currentUser?.cargo === 'Global Admin') && (
                 <button
                   onClick={() => setActiveTab('admin')}
                   className={`text-xs font-bold px-4 py-2 rounded-xl transition-all duration-200 flex items-center gap-2 shrink-0 ${
@@ -895,7 +898,7 @@ export default function App() {
                       <Award className="h-5 w-5 text-purple-400 shrink-0" /> Emblemas & Patentes
                     </button>
 
-                    {(currentUser.cargo === 'Founder' || currentUser.cargo === 'Global Admin') && (
+                    {(currentUser?.cargo === 'Founder' || currentUser?.cargo === 'Global Admin') && (
                       <button
                         onClick={() => { setActiveTab('admin'); setIsMobileMenuOpen(false); }}
                         className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all duration-150 ${activeTab === 'admin' ? 'bg-rose-600 text-white' : 'text-rose-400/90 hover:bg-rose-500/10'}`}
@@ -1029,7 +1032,7 @@ export default function App() {
         </>
       )}
 
-      <Footer isUserLoggedIn={isRegistered} onGoToMarketplace={() => setActiveTab('market')} />
+      <Footer isUserLoggedIn={isRegistered} />
     </div>
   );
 }
