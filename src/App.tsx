@@ -174,7 +174,7 @@ export default function App() {
       
       if (isLogged) {
         const active = db.getActiveProfile();
-        setCurrentUser(active);
+        setCurrentUser(active ? { ...active } : null);
         
         if (active) {
           const userNotifs = db.notifications.filter(n => n.usuario_id === active.id);

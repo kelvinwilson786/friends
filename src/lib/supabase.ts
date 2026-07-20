@@ -1316,6 +1316,8 @@ class LocalDB {
     this.updateLastSyncedState();
     // Initialize required progression fields if missing
     for (const p of this.profiles) {
+      if (p.nivel === undefined) p.nivel = 1;
+      if (p.xp === undefined) p.xp = 0;
       if (p.online_points === undefined) p.online_points = 0;
       if (p.black_diamonds === undefined) p.black_diamonds = 0;
       if (p.last_level_up_at === undefined) p.last_level_up_at = p.criado_em || new Date().toISOString();
@@ -1622,10 +1624,13 @@ class LocalDB {
       // 3. Fetch mensagens
       const { data: mensagensData, error: msgError } = await realSupabase!.from('mensagens').select('*');
       if (!msgError && mensagensData) {
-        this.mensagens = (mensagensData as any[]).map(m => ({
+        const remoteMsgs = (mensagensData as any[]).map(m => ({
           ...m,
           targetBotId: m.targetbotid !== undefined ? m.targetbotid : m.targetBotId
         })) as Mensagem[];
+
+        const localOnly = this.mensagens.filter(lm => !remoteMsgs.some(rm => rm.id === lm.id));
+        this.mensagens = [...remoteMsgs, ...localOnly].sort((a, b) => new Date(a.criado_em).getTime() - new Date(b.criado_em).getTime());
       }
 
       // 4. Fetch tweets
@@ -2513,6 +2518,20 @@ export const api = {
     const isModOrAdmin = ['Founder', 'Global Admin', 'Mentor', 'Mentor Head', 'Staff', 'Guide', 'Chatroom Moderator', 'Chatroom Manager'].includes(user.cargo);
     if (isLocked && !isModOrAdmin) {
       return { allowed: false, reason: 'Esta sala está bloqueada para manutenção ou restrita a moderadores.' };
+    }
+
+    // 6. Enforce maximum of 2 active rooms limit per user
+    const userRooms = db.room_participants.filter(p => p.user_id === userId);
+    const inThisRoom = userRooms.some(p => p.sala_id === roomId);
+    if (!inThisRoom && userRooms.length >= 2) {
+      const activeNames = userRooms.map(p => {
+        const r = db.salas.find(s => s.id === p.sala_id);
+        return r ? `"${r.nome}"` : 'Sala Desconhecida';
+      });
+      return {
+        allowed: false,
+        reason: `Você já está participando de 2 salas ao mesmo tempo (${activeNames.join(' e ')}). Por favor, saia de uma delas no topo da lista antes de tentar entrar em outra sala.`
+      };
     }
 
     return { allowed: true };

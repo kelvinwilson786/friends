@@ -187,8 +187,8 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
   // Load Rooms, active message logs, and favorites
   useEffect(() => {
     const handleUpdate = () => {
-      setRooms(db.salas);
-      setOnlineUsers(db.profiles);
+      setRooms([...db.salas]);
+      setOnlineUsers([...db.profiles]);
     };
     const unsubscribe = subscribeToGlobalUpdates(handleUpdate);
 
@@ -709,6 +709,59 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
 
         {/* Rooms list */}
         <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5 bg-slate-950/10">
+          {/* Seção de Salas Ativas */}
+          {(() => {
+            const userActiveParticipants = db.room_participants.filter(p => p.user_id === currentUser.id);
+            if (userActiveParticipants.length === 0) return null;
+            return (
+              <div className="mb-3.5 bg-slate-950/40 p-2.5 rounded-lg border border-slate-800/80">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[9px] font-mono uppercase tracking-wider font-bold text-indigo-400">
+                    Salas Ativas ({userActiveParticipants.length}/2)
+                  </span>
+                  <span className="text-[8px] text-slate-500 font-mono">Limite Máximo</span>
+                </div>
+                <div className="space-y-1">
+                  {userActiveParticipants.map(part => {
+                    const room = rooms.find(r => r.id === part.sala_id);
+                    if (!room) return null;
+                    return (
+                      <div key={room.id} className="flex items-center justify-between bg-slate-900/40 px-2 py-1.5 rounded border border-slate-800/40 text-xs">
+                        <span 
+                          onClick={() => handleSelectRoom(room)} 
+                          className="font-medium text-slate-300 truncate cursor-pointer hover:text-white hover:underline flex-1 text-[11px]"
+                        >
+                          💬 {room.nome}
+                        </span>
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (confirm(`Deseja realmente sair da sala "${room.nome}"?`)) {
+                              try {
+                                await api.leaveRoom(room.id, currentUser.id, 'manual');
+                                // Force state refreshes
+                                setRooms([...db.salas]);
+                                setOnlineUsers([...db.profiles]);
+                                if (activeRoom?.id === room.id) {
+                                  setActiveRoom(null);
+                                }
+                              } catch (err: any) {
+                                alert(err.message || 'Erro ao sair da sala.');
+                              }
+                            }
+                          }}
+                          className="text-[8px] font-mono font-bold bg-red-500/10 hover:bg-red-500/20 px-1.5 py-0.5 rounded text-red-400 transition"
+                        >
+                          Sair
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
           {filteredRooms.length === 0 ? (
             <div className="text-center py-8 text-xs text-slate-500 font-mono">
               Nenhuma sala encontrada
@@ -1858,9 +1911,51 @@ export default function ChatSection({ onViewProfile }: ChatSectionProps) {
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-            <MessageSquare className="h-10 w-10 text-slate-600 mb-3" />
-            <p className="text-sm font-semibold text-slate-300">Nenhuma sala ativa</p>
-            <p className="text-xs text-slate-500 mt-1">Selecione ou crie uma sala na barra esquerda para iniciar.</p>
+            {accessError ? (
+              <div className="max-w-md bg-red-500/5 border border-red-500/20 rounded-xl p-6 shadow-xl animate-fade-in">
+                <div className="mx-auto h-12 w-12 rounded-full bg-red-500/10 flex items-center justify-center mb-4">
+                  <ShieldAlert className="h-6 w-6 text-red-400" />
+                </div>
+                <h3 className="text-sm font-bold text-red-400">Limite de Salas Excedido</h3>
+                <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+                  {accessError}
+                </p>
+                
+                <div className="mt-5 space-y-2 text-left">
+                  <p className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider">Suas Salas Ativas Atuais:</p>
+                  {db.room_participants.filter(p => p.user_id === currentUser.id).map(part => {
+                    const room = rooms.find(r => r.id === part.sala_id);
+                    if (!room) return null;
+                    return (
+                      <div key={room.id} className="flex items-center justify-between bg-slate-950/60 border border-slate-800/60 p-2.5 rounded-lg text-xs">
+                        <span className="font-semibold text-slate-300 truncate">💬 {room.nome}</span>
+                        <button
+                          onClick={async () => {
+                            try {
+                              await api.leaveRoom(room.id, currentUser.id, 'manual');
+                              setRooms([...db.salas]);
+                              setOnlineUsers([...db.profiles]);
+                              setAccessError(null);
+                            } catch (err: any) {
+                              alert(err.message);
+                            }
+                          }}
+                          className="bg-red-500/10 hover:bg-red-500/20 text-red-400 px-3 py-1 rounded text-[10px] font-mono font-bold transition cursor-pointer"
+                        >
+                          Sair desta Sala
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <>
+                <MessageSquare className="h-10 w-10 text-slate-600 mb-3" />
+                <p className="text-sm font-semibold text-slate-300">Nenhuma sala ativa</p>
+                <p className="text-xs text-slate-500 mt-1">Selecione ou crie uma sala na barra esquerda para iniciar.</p>
+              </>
+            )}
           </div>
         )}
       </div>

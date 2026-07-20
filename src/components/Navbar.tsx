@@ -28,8 +28,9 @@ export default function Navbar({ activeTab, setActiveTab, openPMWithUser, onView
 
   useEffect(() => {
     const handleUpdate = () => {
-      setCurrentUser(db.getActiveProfile());
-      setAllUsers(db.profiles);
+      const active = db.getActiveProfile();
+      setCurrentUser(active ? { ...active } : db.getActiveProfile());
+      setAllUsers([...db.profiles]);
       api.getNotifications().then(setNotifications);
     };
     handleUpdate();
